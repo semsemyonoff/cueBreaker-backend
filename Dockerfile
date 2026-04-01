@@ -4,6 +4,9 @@ RUN apk add --no-cache build-base curl
 RUN curl -fsSL http://shnutils.freeshell.org/shntool/dist/src/shntool-3.0.10.tar.gz \
     | tar xz -C /tmp \
  && cd /tmp/shntool-3.0.10 \
+ && curl -fsSL -o config.guess 'https://raw.githubusercontent.com/gcc-mirror/gcc/master/config.guess' \
+ && curl -fsSL -o config.sub   'https://raw.githubusercontent.com/gcc-mirror/gcc/master/config.sub' \
+ && chmod +x config.guess config.sub \
  && ./configure --prefix=/usr CFLAGS="-O2 -std=gnu11" \
  && make -j$(nproc) \
  && make install DESTDIR=/out

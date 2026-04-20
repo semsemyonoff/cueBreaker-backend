@@ -132,7 +132,7 @@ function renderTreeNode(node, name, depth, forceOpen) {
   if (leaf && !hasChildren) {
     const check = leaf.split_done ? '<span class="tree-leaf-check" title="Already split">&#10003;</span>' : '';
     return `<li>
-      <div class="tree-leaf${leaf.split_done ? ' done' : ''}" onclick="navigateTo('${encodeURIComponent(leaf.path)}')">
+      <div class="tree-leaf${leaf.split_done ? ' done' : ''}" data-path="${esc(leaf.path)}" onclick="navigateTo(encodeURIComponent(this.dataset.path))">
         <span class="tree-leaf-name">${check}${esc(name)}</span>
         <span class="tree-leaf-meta">${leaf.cue_files.length} cue</span>
       </div>
@@ -144,7 +144,7 @@ function renderTreeNode(node, name, depth, forceOpen) {
 
   let html = '<li>';
   const cnt = countLeaves(node);
-  html += `<div class="tree-folder" data-fk="${esc(fk)}" onclick="toggleFolder(this, '${esc(fk)}')">
+  html += `<div class="tree-folder" data-fk="${esc(fk)}" onclick="toggleFolder(this, this.dataset.fk)">
     <span class="tree-arrow${isOpen ? ' open' : ''}">&#9654;</span>
     <span class="tree-folder-name">${esc(name)}</span>
     <span class="tree-folder-count">(${cnt})</span>
@@ -154,7 +154,7 @@ function renderTreeNode(node, name, depth, forceOpen) {
   if (leaf) {
     const check = leaf.split_done ? '<span class="tree-leaf-check" title="Already split">&#10003;</span>' : '';
     html += `<li>
-      <div class="tree-leaf${leaf.split_done ? ' done' : ''}" onclick="navigateTo('${encodeURIComponent(leaf.path)}')">
+      <div class="tree-leaf${leaf.split_done ? ' done' : ''}" data-path="${esc(leaf.path)}" onclick="navigateTo(encodeURIComponent(this.dataset.path))">
         <span class="tree-leaf-name" style="font-style:italic">${check}[this folder]</span>
         <span class="tree-leaf-meta">${leaf.cue_files.length} cue</span>
       </div>
@@ -290,7 +290,7 @@ async function renderAlbum(item, cueFile) {
   const splitLabel = info.split_done
     ? `Split again (${info.output_tracks} tracks in output)`
     : `Split ${info.tracks.length} tracks`;
-  html += `<button class="btn btn-primary" id="split-btn" onclick="doSplit('${esc(item.path)}', '${esc(cueFile)}')">${splitLabel}</button>`;
+  html += `<button class="btn btn-primary" id="split-btn" data-path="${esc(item.path)}" data-cue="${esc(cueFile)}" onclick="doSplit(this.dataset.path, this.dataset.cue)">${splitLabel}</button>`;
   html += '<div id="job-status"></div>';
 
   content.innerHTML = html;

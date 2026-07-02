@@ -222,11 +222,11 @@ plus a **React + Vite + TypeScript SPA**, shipping the approved "Waveform & Cuts
 **Files:**
 - Create: `backend/internal/job/job.go`, `backend/internal/job/queue.go`, `backend/internal/job/job_test.go`
 
-- [ ] `Manager` with an in-memory map keyed by `path/cue_file` + a single worker goroutine draining a channel (one split at a time); `Enqueue` rejects a job already `queued|splitting|tagging` (409-style result — a queued duplicate must NOT enqueue a second run)
-- [ ] job record: `status,message,result_files,progress_current,progress_total,progress_detail`; thread-safe `Update`/`Get` (guard all reads/writes so concurrent status polling is race-free — verify with `-race`); wire `internal/split`'s progress callback to `Update`
-- [ ] give each job a cancelable `context.Context` (passed to `internal/split`); map split errors/timeouts/cancellation to `status=error` with message; success → `done`
-- [ ] write tests (run under `-race`): enqueue→run→done transitions; duplicate rejected while the first is still `queued` (behind another job) AND while `splitting`; serialization (2 enqueued run sequentially, not concurrently); error mapping
-- [ ] `go test ./internal/job` green
+- [x] `Manager` with an in-memory map keyed by `path/cue_file` + a single worker goroutine draining a channel (one split at a time); `Enqueue` rejects a job already `queued|splitting|tagging` (409-style result — a queued duplicate must NOT enqueue a second run)
+- [x] job record: `status,message,result_files,progress_current,progress_total,progress_detail`; thread-safe `Update`/`Get` (guard all reads/writes so concurrent status polling is race-free — verify with `-race`); wire `internal/split`'s progress callback to `Update`
+- [x] give each job a cancelable `context.Context` (passed to `internal/split`); map split errors/timeouts/cancellation to `status=error` with message; success → `done`
+- [x] write tests (run under `-race`): enqueue→run→done transitions; duplicate rejected while the first is still `queued` (behind another job) AND while `splitting`; serialization (2 enqueued run sequentially, not concurrently); error mapping
+- [x] `go test ./internal/job` green
 
 ### Task 10: `internal/server` — routes, JSON API, path security
 **Files:**

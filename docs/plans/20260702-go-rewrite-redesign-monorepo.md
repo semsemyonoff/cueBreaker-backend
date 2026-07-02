@@ -182,11 +182,11 @@ plus a **React + Vite + TypeScript SPA**, shipping the approved "Waveform & Cuts
 **Files:**
 - Create: `backend/internal/scan/scan.go`, `backend/internal/scan/scan_test.go`
 
-- [ ] port `find_cue_pairs`: walk `INPUT_DIR`, keep dirs with a CUE referencing an existing single FLAC; collect `cue_files[]`/`flac_files[]`; sort by rel path
-- [ ] port `check_output_status`: compare CUE track count vs FLAC count in `OUTPUT_DIR/<rel>` → `done/output_tracks`
-- [ ] provide a `Search(pairs, q)` filter (case-insensitive path contains; empty `q` ⇒ `[]`, as in `app.py`) for parity
-- [ ] write tests with `t.TempDir()` fixtures (unsplit pair, already-split, multi-file cue skipped, nested dirs) + `Search` (match, no-match, empty `q` ⇒ `[]`)
-- [ ] `go test ./internal/scan` green
+- [x] port `find_cue_pairs`: walk `INPUT_DIR`, keep dirs with a CUE referencing an existing single FLAC; collect `cue_files[]`/`flac_files[]`; sort by rel path
+- [x] port `check_output_status`: compare CUE track count vs FLAC count in `OUTPUT_DIR/<rel>` → `done/output_tracks`
+- [x] provide a `Search(pairs, q)` filter (case-insensitive path contains; empty `q` ⇒ `[]`, as in `app.py`) for parity
+- [x] write tests with `t.TempDir()` fixtures (unsplit pair, already-split, multi-file cue skipped, nested dirs) + `Search` (match, no-match, empty `q` ⇒ `[]`)
+- [x] `go test ./internal/scan` green
 
 ### Task 6: `internal/scan` — cover discovery
 **Files:**

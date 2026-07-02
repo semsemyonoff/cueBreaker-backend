@@ -212,11 +212,11 @@ plus a **React + Vite + TypeScript SPA**, shipping the approved "Waveform & Cuts
 - Modify: `backend/internal/split/split.go`
 - Create: `backend/internal/split/tag.go`, `backend/internal/split/tag_test.go`
 
-- [ ] port tagging: per track `cueprint` (`%t,%p,%n`; album `%T,%P`) + `metaflac --remove-all-tags` then `--set-tag`; add `GENRE/DATE/TRACKTOTAL` (each `cueprint`/`metaflac` call via the shared context helper with a short ~10s timeout, as in `app.py`)
-- [ ] exclude the pregap `00 - *.flac` from the tag list **before** tagging (so `TRACKTOTAL` = real, non-pregap track count), then delete the pregap file **after** tagging (ordering as in `app.py`); copy discovered cover into `outdir`; collect `result_files[]`
-- [ ] build the tag-set for a track as a pure, testable function (`buildTags(...) map[string]string`)
-- [ ] write tests for `buildTags` (title/artist/track/album, genre+date fallbacks) + `TRACKTOTAL` equals non-pregap count (pregap excluded from input)
-- [ ] `go test ./internal/split` green
+- [x] port tagging: per track `cueprint` (`%t,%p,%n`; album `%T,%P`) + `metaflac --remove-all-tags` then `--set-tag`; add `GENRE/DATE/TRACKTOTAL` (each `cueprint`/`metaflac` call via the shared context helper with a short ~10s timeout, as in `app.py`)
+- [x] exclude the pregap `00 - *.flac` from the tag list **before** tagging (so `TRACKTOTAL` = real, non-pregap track count), then delete the pregap file **after** tagging (ordering as in `app.py`); copy discovered cover into `outdir`; collect `result_files[]`
+- [x] build the tag-set for a track as a pure, testable function (`buildTags(...) map[string]string`)
+- [x] write tests for `buildTags` (title/artist/track/album, genre+date fallbacks) + `TRACKTOTAL` equals non-pregap count (pregap excluded from input)
+- [x] `go test ./internal/split` green
 
 ### Task 9: `internal/job` — serialized queue + in-memory state
 **Files:**

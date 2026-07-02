@@ -54,7 +54,7 @@ func TestRun_NoSourceFLAC(t *testing.T) {
 	}
 	// No album.flac written: SourceFLAC resolution must fail.
 
-	err := Run(context.Background(), Options{
+	_, err := Run(context.Background(), Options{
 		CuePath:   cuePath,
 		SourceDir: sourceDir,
 		OutDir:    filepath.Join(sourceDir, "out"),
@@ -70,7 +70,7 @@ func TestRun_CuebreakpointsFails(t *testing.T) {
 	writeFakeTool(t, toolDir, "cuebreakpoints", `echo "bad cue sheet" >&2; exit 1`)
 	t.Setenv("PATH", toolDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	err := Run(context.Background(), Options{
+	_, err := Run(context.Background(), Options{
 		CuePath:   cuePath,
 		SourceDir: sourceDir,
 		OutDir:    outDir,
@@ -88,11 +88,23 @@ func TestRun_Success_ProgressCapped(t *testing.T) {
 	toolDir := t.TempDir()
 	writeFakeTool(t, toolDir, "cuebreakpoints", `exit 0`)
 	writeFakeTool(t, toolDir, "shnsplit", `
+outdir=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -d) outdir="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+touch "$outdir/00 - pregap.flac"
+touch "$outdir/01 - First Track.flac"
+touch "$outdir/02 - Second Track.flac"
 echo "Splitting [album.flac] --> [00 - pregap.flac] : 100% OK" >&2
 echo "Splitting [album.flac] --> [01 - First Track.flac] : 100% OK" >&2
 echo "Splitting [album.flac] --> [02 - Second Track.flac] : 100% OK" >&2
 exit 0
 `)
+	writeFakeTool(t, toolDir, "cueprint", `echo tagvalue`)
+	writeFakeTool(t, toolDir, "metaflac", `exit 0`)
 	t.Setenv("PATH", toolDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	type call struct {
@@ -100,7 +112,7 @@ exit 0
 		detail         string
 	}
 	var calls []call
-	err := Run(context.Background(), Options{
+	result, err := Run(context.Background(), Options{
 		CuePath:   cuePath,
 		SourceDir: sourceDir,
 		OutDir:    outDir,
@@ -116,19 +128,32 @@ exit 0
 		t.Fatalf("Run() did not create OutDir: %v", statErr)
 	}
 
+	wantResult := []string{"01 - First Track.flac", "02 - Second Track.flac"}
+	if len(result) != len(wantResult) {
+		t.Fatalf("result = %v, want %v", result, wantResult)
+	}
+	for i, name := range wantResult {
+		if result[i] != name {
+			t.Fatalf("result = %v, want %v", result, wantResult)
+		}
+	}
+	if _, statErr := os.Stat(filepath.Join(outDir, "00 - pregap.flac")); !os.IsNotExist(statErr) {
+		t.Fatalf("pregap file was not removed")
+	}
+
 	const trackCount = 2
 	const totalSteps = trackCount * 2
 	for _, c := range calls {
 		if c.total != totalSteps {
 			t.Fatalf("call %+v: total = %d, want %d", c, c.total, totalSteps)
 		}
-		if c.current > trackCount {
-			t.Fatalf("call %+v: current exceeds trackCount %d", c, trackCount)
+		if c.current > totalSteps {
+			t.Fatalf("call %+v: current exceeds totalSteps %d", c, totalSteps)
 		}
 	}
 	last := calls[len(calls)-1]
-	if last.current != trackCount {
-		t.Fatalf("final current = %d, want %d", last.current, trackCount)
+	if last.current != totalSteps {
+		t.Fatalf("final current = %d, want %d", last.current, totalSteps)
 	}
 }
 
@@ -142,7 +167,8 @@ func TestRun_ContextCanceledKillsShnsplit(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		done <- Run(ctx, Options{CuePath: cuePath, SourceDir: sourceDir, OutDir: outDir})
+		_, err := Run(ctx, Options{CuePath: cuePath, SourceDir: sourceDir, OutDir: outDir})
+		done <- err
 	}()
 
 	time.Sleep(100 * time.Millisecond)

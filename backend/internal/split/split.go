@@ -32,30 +32,31 @@ type Options struct {
 	Progress ProgressFunc
 }
 
-// Run executes the split half of the pipeline: it resolves the source
-// audio file, makes a UTF-8 temp copy of the CUE (removed on every exit
-// path), runs cuebreakpoints, then shnsplit — streaming its stderr into
-// Options.Progress, capped so it never exceeds the real track count.
-// Tagging, pregap removal, and cover copy are a separate step (tag.go).
-func Run(ctx context.Context, opts Options) error {
+// Run executes the full split pipeline: it resolves the source audio file,
+// makes a UTF-8 temp copy of the CUE (removed on every exit path), runs
+// cuebreakpoints, then shnsplit — streaming its stderr into Options.Progress,
+// capped so it never exceeds the real track count — then tags every real
+// track, removes the discarded pregap file, and copies a discovered cover
+// into OutDir. It returns the sorted list of resulting FLAC file names.
+func Run(ctx context.Context, opts Options) ([]string, error) {
 	album, err := cue.Parse(opts.CuePath)
 	if err != nil {
-		return fmt.Errorf("split: parse cue: %w", err)
+		return nil, fmt.Errorf("split: parse cue: %w", err)
 	}
 
 	sourcePath, ok := cue.SourceFLAC(album, opts.SourceDir)
 	if !ok {
-		return fmt.Errorf("split: no source FLAC/WAV found in %s", opts.SourceDir)
+		return nil, fmt.Errorf("split: no source FLAC/WAV found in %s", opts.SourceDir)
 	}
 
 	utf8Cue, err := cue.MakeUTF8Cue(opts.CuePath)
 	if err != nil {
-		return fmt.Errorf("split: make utf8 cue: %w", err)
+		return nil, fmt.Errorf("split: make utf8 cue: %w", err)
 	}
 	defer os.Remove(utf8Cue)
 
 	if err := os.MkdirAll(opts.OutDir, 0o755); err != nil {
-		return fmt.Errorf("split: create output dir: %w", err)
+		return nil, fmt.Errorf("split: create output dir: %w", err)
 	}
 
 	trackCount := len(album.Tracks)
@@ -63,16 +64,22 @@ func Run(ctx context.Context, opts Options) error {
 
 	reportProgress(opts.Progress, 0, totalSteps, "Calculating breakpoints...")
 	if err := runCuebreakpoints(ctx, utf8Cue); err != nil {
-		return err
+		return nil, err
 	}
 
 	reportProgress(opts.Progress, 0, totalSteps, "Splitting FLAC...")
 	if err := runShnsplit(ctx, utf8Cue, sourcePath, opts.OutDir, trackCount, totalSteps, opts.Progress); err != nil {
-		return err
+		return nil, err
 	}
 
 	reportProgress(opts.Progress, trackCount, totalSteps, "Splitting complete, tagging...")
-	return nil
+	result, err := finishSplit(ctx, utf8Cue, album, opts.SourceDir, opts.OutDir, trackCount, totalSteps, opts.Progress)
+	if err != nil {
+		return nil, err
+	}
+
+	reportProgress(opts.Progress, totalSteps, totalSteps, "Complete")
+	return result, nil
 }
 
 func reportProgress(progress ProgressFunc, current, total int, detail string) {

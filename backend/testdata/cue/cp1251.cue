@@ -1,0 +1,10 @@
+PERFORMER "Тестовый Артист"
+TITLE "Тестовый Альбом"
+FILE "album.flac" WAVE
+  TRACK 01 AUDIO
+    TITLE "Первый Трек"
+    PERFORMER "Тестовый Артист"
+    INDEX 01 00:00:00
+  TRACK 02 AUDIO
+    TITLE "Второй Трек"
+    INDEX 01 03:45:20

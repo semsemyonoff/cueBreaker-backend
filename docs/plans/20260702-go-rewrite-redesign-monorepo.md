@@ -150,12 +150,12 @@ plus a **React + Vite + TypeScript SPA**, shipping the approved "Waveform & Cuts
 - Create: `backend/internal/cue/encoding.go`, `backend/internal/cue/encoding_test.go`
 - Create: `backend/testdata/cue/*.cue` (fixtures in several encodings)
 
-- [ ] port `read_cue`: try `utf-8-sig, utf-8, cp1251, cp1252, shift_jis, euc-kr, latin-1` (via `golang.org/x/text/encoding`), accept first decode that contains `TRACK`+`INDEX`, else fallback `latin-1`; strip BOM
-- [ ] port `make_utf8_cue`: write a temp UTF-8 `.cue` (caller cleans up)
-- [ ] add encoded fixtures (UTF-8, CP1251, Shift-JIS at minimum)
-- [ ] write table-driven tests for detection across fixtures + fallback path
-- [ ] write test for temp-copy content + cleanup contract
-- [ ] `go test ./internal/cue` green
+- [x] port `read_cue`: try `utf-8-sig, utf-8, cp1251, cp1252, shift_jis, euc-kr, latin-1` (via `golang.org/x/text/encoding`), accept first decode that contains `TRACK`+`INDEX`, else fallback `latin-1`; strip BOM
+- [x] port `make_utf8_cue`: write a temp UTF-8 `.cue` (caller cleans up)
+- [x] add encoded fixtures (UTF-8, CP1251, Shift-JIS at minimum)
+- [x] write table-driven tests for detection across fixtures + fallback path
+- [x] write test for temp-copy content + cleanup contract
+- [x] `go test ./internal/cue` green
 
 ### Task 3: `internal/cue` — CUE parser (album + tracks + numeric offsets)
 **Files:**

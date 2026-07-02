@@ -1,0 +1,10 @@
+PERFORMER "Test Artist"
+TITLE "Test Album"
+FILE "album.flac" WAVE
+  TRACK 01 AUDIO
+    TITLE "First Track"
+    PERFORMER "Test Artist"
+    INDEX 01 00:00:00
+  TRACK 02 AUDIO
+    TITLE "Second Track"
+    INDEX 01 03:45:20

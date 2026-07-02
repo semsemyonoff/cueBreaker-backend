@@ -1,4 +1,14 @@
-FROM python:3.14-alpine AS shntool-builder
+# --- SPA build ---
+FROM node:22-alpine AS frontend-builder
+
+WORKDIR /src/frontend
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ .
+RUN npm run build
+
+# --- shntool build (shnsplit) ---
+FROM alpine:3.20 AS shntool-builder
 
 RUN apk add --no-cache build-base curl
 RUN curl -fsSL http://shnutils.freeshell.org/shntool/dist/src/shntool-3.0.10.tar.gz \
@@ -11,7 +21,20 @@ RUN curl -fsSL http://shnutils.freeshell.org/shntool/dist/src/shntool-3.0.10.tar
  && make -j$(nproc) \
  && make install DESTDIR=/out
 
-FROM python:3.14-alpine
+# --- Go build (SPA embedded) ---
+FROM golang:1.26-alpine AS backend-builder
+
+ARG APP_VERSION=dev
+
+WORKDIR /src/backend
+COPY backend/go.mod backend/go.sum ./
+RUN go mod download
+COPY backend/ .
+COPY --from=frontend-builder /src/frontend/dist/. web/dist/
+RUN go build -ldflags "-X main.version=${APP_VERSION}" -o /out/cuebreaker ./cmd/cuebreaker
+
+# --- Runtime ---
+FROM alpine:3.20
 
 COPY --from=shntool-builder /out/usr/bin/shntool /usr/bin/shntool
 RUN ln -s shntool /usr/bin/shnsplit
@@ -20,13 +43,12 @@ RUN apk add --no-cache \
     cuetools \
     flac
 
-RUN pip install --no-cache-dir flask gunicorn
+COPY --from=backend-builder /out/cuebreaker /usr/local/bin/cuebreaker
 
-WORKDIR /app
-COPY app.py .
-COPY templates/ templates/
-COPY static/ static/
+ENV CUEBREAKER_INPUT_DIR=/input \
+    CUEBREAKER_OUTPUT_DIR=/output \
+    CUEBREAKER_PORT=5000
 
 EXPOSE 5000
 
-CMD ["gunicorn", "-b", "0.0.0.0:5000", "-w", "2", "--threads", "4", "--access-logfile", "-", "--error-logfile", "-", "app:app"]
+CMD ["cuebreaker"]

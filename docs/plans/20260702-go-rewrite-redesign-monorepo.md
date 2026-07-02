@@ -324,11 +324,11 @@ plus a **React + Vite + TypeScript SPA**, shipping the approved "Waveform & Cuts
 - Delete: `app.py`, `templates/index.html`, `static/style.css`, `build.sh`, old `Dockerfile`/`Makefile` (replaced)
 - Keep: `static/logo.svg` referenced by the frontend (copy into `frontend/public/logo.svg`)
 
-- [ ] `Makefile`: `frontend-build` (`npm --prefix frontend ci && npm --prefix frontend run build` → copy `frontend/dist/*` into `backend/web/dist/`), `build` (frontend-build → `go build -ldflags "-X main.version=$(VERSION)"`), `dev` (Vite + `go run` with proxy), `test`, `lint`
-- [ ] root multi-stage `Dockerfile`: node stage builds SPA → go stage `COPY --from` dist into `backend/web/dist` then `go build` → alpine runtime building `shntool` 3.0.10 from source + apk `cuetools flac` (mirror current tool stack); `ENV CUEBREAKER_*`; expose port
-- [ ] copy `static/logo.svg` → `frontend/public/logo.svg`; remove superseded Python/build files
-- [ ] rewrite `README.md` (monorepo layout, `make dev`/`make build`, env vars, tool deps, note on the future repo split)
-- [ ] smoke: `make build` yields a binary serving the real SPA; `docker build` succeeds
+- [x] `Makefile`: `frontend-build` (`npm --prefix frontend ci && npm --prefix frontend run build` → copy `frontend/dist/*` into `backend/web/dist/`), `build` (frontend-build → `go build -ldflags "-X main.version=$(VERSION)"`), `dev` (Vite + `go run` with proxy), `test`, `lint`
+- [x] root multi-stage `Dockerfile`: node stage builds SPA → go stage `COPY --from` dist into `backend/web/dist` then `go build` → alpine runtime building `shntool` 3.0.10 from source + apk `cuetools flac` (mirror current tool stack); `ENV CUEBREAKER_*`; expose port
+- [x] copy `static/logo.svg` → `frontend/public/logo.svg`; remove superseded Python/build files
+- [x] rewrite `README.md` (monorepo layout, `make dev`/`make build`, env vars, tool deps, note on the future repo split)
+- [x] smoke: `make build` yields a binary serving the real SPA; `docker build` succeeds
 
 ### Task 20: Verify acceptance criteria
 - [ ] verify Overview parity: scan/search/preview/cover/split/status behave like the Python app; extended preview carries `total_seconds` + `start_seconds`; `/api/version` works

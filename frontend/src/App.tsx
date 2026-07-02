@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import * as api from './api/client'
 import type { ScanPair } from './api/types'
+import AlbumPanel from './components/AlbumPanel'
 import Shell from './components/Shell'
 import './styles/shell.css'
 
@@ -26,7 +27,7 @@ export default function App() {
 
   return (
     <Shell items={items} selectedPath={selected?.path ?? null} onSelect={setSelected} onRescan={rescan} version={version}>
-      {selected ? <p>{selected.path}</p> : <p>Select an album from the library.</p>}
+      {selected ? <AlbumPanel item={selected} /> : <p>Select an album from the library.</p>}
     </Shell>
   )
 }

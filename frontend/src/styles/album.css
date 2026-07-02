@@ -1,0 +1,246 @@
+.album {
+  max-width: 900px;
+}
+
+.crumbs {
+  font: 500 12px var(--mono);
+  color: var(--dim2);
+  margin-bottom: 18px;
+  letter-spacing: 0.2px;
+}
+
+.crumbs b {
+  color: var(--dim);
+  font-weight: 600;
+}
+
+.album-error {
+  color: var(--red);
+}
+
+.album-loading {
+  color: var(--dim);
+}
+
+.ahead {
+  display: flex;
+  gap: 22px;
+  align-items: flex-start;
+}
+
+.cover {
+  width: 150px;
+  height: 150px;
+  border-radius: 13px;
+  flex-shrink: 0;
+  overflow: hidden;
+  object-fit: cover;
+  background: linear-gradient(150deg, #1d3a63, #0f1b30);
+  border: 1px solid var(--border2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cover.ph {
+  background: var(--bg2);
+}
+
+.cover.ph .phw {
+  color: var(--dim2);
+  font: 500 11px var(--mono);
+}
+
+.ameta {
+  flex: 1;
+  min-width: 0;
+  padding-top: 2px;
+}
+
+.atitle {
+  font-weight: 800;
+  font-size: 27px;
+  letter-spacing: -0.6px;
+  line-height: 1.1;
+  margin-bottom: 6px;
+}
+
+.aartist {
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--cyan);
+  margin-bottom: 14px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 11px;
+  border-radius: 7px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  font: 500 12px var(--mono);
+  color: var(--dim);
+}
+
+.chip b {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.metarow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 28px;
+  padding: 0 13px;
+  border-radius: 8px;
+  font: 700 11.5px var(--font-ui);
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+.pill .pdot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.pill-idle {
+  background: rgba(27, 164, 240, 0.13);
+  color: #7cd4ff;
+  border: 1px solid rgba(27, 164, 240, 0.3);
+}
+
+.pill-idle .pdot {
+  background: var(--cyan);
+  box-shadow: 0 0 7px var(--cyan);
+}
+
+.pill-done {
+  background: rgba(47, 191, 131, 0.14);
+  color: #69dda6;
+  border: 1px solid rgba(47, 191, 131, 0.32);
+}
+
+.pill-done .pdot {
+  background: var(--green);
+  box-shadow: 0 0 7px var(--green);
+}
+
+.cuesel {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  height: 34px;
+  border: 1px solid var(--border2);
+  border-radius: 9px;
+  overflow: hidden;
+}
+
+.cuesel .cl {
+  padding: 0 12px;
+  font: 600 11px var(--font-ui);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--dim2);
+  background: var(--bg2);
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  border-right: 1px solid var(--border2);
+}
+
+.cuesel .cv {
+  padding: 0 12px;
+  font: 500 12.5px var(--mono);
+  color: var(--text);
+  background: transparent;
+  border: none;
+  height: 100%;
+}
+
+.wavewrap {
+  margin: 24px 0 6px;
+  padding: 26px 22px 20px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 13px;
+}
+
+.wavecap {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 26px;
+  font: 500 11px var(--mono);
+  color: var(--dim2);
+}
+
+.wavecap .cuename {
+  color: var(--dim);
+}
+
+.ttable {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 22px;
+}
+
+.ttable th {
+  text-align: left;
+  font: 600 11px var(--font-ui);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--dim2);
+  padding: 0 12px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.ttable td {
+  padding: 9px 12px;
+  border-bottom: 1px solid rgba(37, 42, 61, 0.5);
+  font-size: 13px;
+}
+
+.ttable tr:hover td,
+.ttable tr.trow-hover td {
+  background: rgba(120, 196, 240, 0.08);
+}
+
+.ttable .tn {
+  font: 600 12px var(--mono);
+  color: var(--dim2);
+  width: 42px;
+}
+
+.ttable .tt {
+  font-weight: 500;
+}
+
+.ttable .ta {
+  color: var(--dim);
+}
+
+.ttable .ti {
+  font: 500 12px var(--mono);
+  color: var(--dim2);
+  text-align: right;
+  width: 96px;
+}

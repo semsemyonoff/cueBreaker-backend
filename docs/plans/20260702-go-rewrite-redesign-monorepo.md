@@ -302,11 +302,11 @@ plus a **React + Vite + TypeScript SPA**, shipping the approved "Waveform & Cuts
 - Create: `frontend/src/components/AlbumPanel.tsx`, `frontend/src/components/TrackTable.tsx`, `frontend/src/components/CueSelector.tsx`, `frontend/src/styles/album.css`
 - Modify: `frontend/src/App.tsx`
 
-- [ ] on album select → `preview()`; render breadcrumb, cover (or placeholder), title/artist/chips, status pill (unsplit/split), CUE selector when >1, `Waveform`, `TrackTable`
-- [ ] hover link: segment↔row highlight both ways; `MM:SS:FF` timings in mono
-- [ ] handle no-cover placeholder + multi-CUE switch (re-preview on change)
-- [ ] write Vitest tests for AlbumPanel data→render (pill state, chips, CUE options) with a mocked client
-- [ ] `npm run test` + `npm run build` green
+- [x] on album select → `preview()`; render breadcrumb, cover (or placeholder), title/artist/chips, status pill (unsplit/split), CUE selector when >1, `Waveform`, `TrackTable`
+- [x] hover link: segment↔row highlight both ways; `MM:SS:FF` timings in mono
+- [x] handle no-cover placeholder + multi-CUE switch (re-preview on change)
+- [x] write Vitest tests for AlbumPanel data→render (pill state, chips, CUE options) with a mocked client
+- [x] `npm run test` + `npm run build` green
 
 ### Task 18: Split flow + status polling + remaining states
 **Files:**

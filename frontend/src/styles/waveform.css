@@ -79,6 +79,19 @@
   letter-spacing: 0.5px;
 }
 
+.cut {
+  cursor: default;
+}
+
+.cut-hover {
+  background: var(--cyan2);
+  box-shadow: 0 0 8px rgba(145, 242, 255, 0.6);
+}
+
+.cut-hover .cut-num {
+  color: var(--cyan2);
+}
+
 .h1 {
   height: 9px;
 }

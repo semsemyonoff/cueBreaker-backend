@@ -1,0 +1,165 @@
+package split
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+const twoTrackCue = `PERFORMER "Test Artist"
+TITLE "Test Album"
+FILE "album.flac" WAVE
+  TRACK 01 AUDIO
+    TITLE "First Track"
+    INDEX 01 00:00:00
+  TRACK 02 AUDIO
+    TITLE "Second Track"
+    INDEX 01 03:45:20
+`
+
+// writeFakeTool writes an executable shell script named name into dir and
+// prepends dir to PATH for the duration of the test, so Run exercises the
+// real exec.CommandContext plumbing without depending on the real
+// cuebreakpoints/shnsplit binaries being installed.
+func writeFakeTool(t *testing.T, dir, name, script string) {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+script), 0o755); err != nil {
+		t.Fatalf("write fake %s: %v", name, err)
+	}
+}
+
+func setupSource(t *testing.T) (sourceDir, cuePath, outDir string) {
+	t.Helper()
+	sourceDir = t.TempDir()
+	cuePath = filepath.Join(sourceDir, "album.cue")
+	if err := os.WriteFile(cuePath, []byte(twoTrackCue), 0o644); err != nil {
+		t.Fatalf("write cue fixture: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceDir, "album.flac"), []byte("not real audio"), 0o644); err != nil {
+		t.Fatalf("write flac fixture: %v", err)
+	}
+	outDir = filepath.Join(t.TempDir(), "out")
+	return sourceDir, cuePath, outDir
+}
+
+func TestRun_NoSourceFLAC(t *testing.T) {
+	sourceDir := t.TempDir()
+	cuePath := filepath.Join(sourceDir, "album.cue")
+	if err := os.WriteFile(cuePath, []byte(twoTrackCue), 0o644); err != nil {
+		t.Fatalf("write cue fixture: %v", err)
+	}
+	// No album.flac written: SourceFLAC resolution must fail.
+
+	err := Run(context.Background(), Options{
+		CuePath:   cuePath,
+		SourceDir: sourceDir,
+		OutDir:    filepath.Join(sourceDir, "out"),
+	})
+	if err == nil || !strings.Contains(err.Error(), "no source FLAC") {
+		t.Fatalf("Run() error = %v, want no-source-FLAC error", err)
+	}
+}
+
+func TestRun_CuebreakpointsFails(t *testing.T) {
+	sourceDir, cuePath, outDir := setupSource(t)
+	toolDir := t.TempDir()
+	writeFakeTool(t, toolDir, "cuebreakpoints", `echo "bad cue sheet" >&2; exit 1`)
+	t.Setenv("PATH", toolDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	err := Run(context.Background(), Options{
+		CuePath:   cuePath,
+		SourceDir: sourceDir,
+		OutDir:    outDir,
+	})
+	if err == nil || !strings.Contains(err.Error(), "cuebreakpoints failed") {
+		t.Fatalf("Run() error = %v, want cuebreakpoints failure", err)
+	}
+	if !strings.Contains(err.Error(), "bad cue sheet") {
+		t.Fatalf("Run() error = %v, want tool stderr surfaced", err)
+	}
+}
+
+func TestRun_Success_ProgressCapped(t *testing.T) {
+	sourceDir, cuePath, outDir := setupSource(t)
+	toolDir := t.TempDir()
+	writeFakeTool(t, toolDir, "cuebreakpoints", `exit 0`)
+	writeFakeTool(t, toolDir, "shnsplit", `
+echo "Splitting [album.flac] --> [00 - pregap.flac] : 100% OK" >&2
+echo "Splitting [album.flac] --> [01 - First Track.flac] : 100% OK" >&2
+echo "Splitting [album.flac] --> [02 - Second Track.flac] : 100% OK" >&2
+exit 0
+`)
+	t.Setenv("PATH", toolDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	type call struct {
+		current, total int
+		detail         string
+	}
+	var calls []call
+	err := Run(context.Background(), Options{
+		CuePath:   cuePath,
+		SourceDir: sourceDir,
+		OutDir:    outDir,
+		Progress: func(current, total int, detail string) {
+			calls = append(calls, call{current, total, detail})
+		},
+	})
+	if err != nil {
+		t.Fatalf("Run() unexpected error: %v", err)
+	}
+
+	if info, statErr := os.Stat(outDir); statErr != nil || !info.IsDir() {
+		t.Fatalf("Run() did not create OutDir: %v", statErr)
+	}
+
+	const trackCount = 2
+	const totalSteps = trackCount * 2
+	for _, c := range calls {
+		if c.total != totalSteps {
+			t.Fatalf("call %+v: total = %d, want %d", c, c.total, totalSteps)
+		}
+		if c.current > trackCount {
+			t.Fatalf("call %+v: current exceeds trackCount %d", c, trackCount)
+		}
+	}
+	last := calls[len(calls)-1]
+	if last.current != trackCount {
+		t.Fatalf("final current = %d, want %d", last.current, trackCount)
+	}
+}
+
+func TestRun_ContextCanceledKillsShnsplit(t *testing.T) {
+	sourceDir, cuePath, outDir := setupSource(t)
+	toolDir := t.TempDir()
+	writeFakeTool(t, toolDir, "cuebreakpoints", `exit 0`)
+	writeFakeTool(t, toolDir, "shnsplit", `sleep 30`)
+	t.Setenv("PATH", toolDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(ctx, Options{CuePath: cuePath, SourceDir: sourceDir, OutDir: outDir})
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatalf("Run() error = nil, want error after context cancellation")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run() did not return after context cancellation; shnsplit was not killed")
+	}
+}
+
+func TestBreakpointsTimeout(t *testing.T) {
+	if breakpointsTimeout != 30*time.Second {
+		t.Fatalf("breakpointsTimeout = %v, want 30s", breakpointsTimeout)
+	}
+}

@@ -200,12 +200,12 @@ plus a **React + Vite + TypeScript SPA**, shipping the approved "Waveform & Cuts
 **Files:**
 - Create: `backend/internal/split/split.go`, `backend/internal/split/progress.go`, `backend/internal/split/progress_test.go`
 
-- [ ] implement pipeline start: locate source FLAC via `cue.SourceFLAC`, make UTF-8 temp cue, run `cuebreakpoints` (error surfaced), run `shnsplit` (`-f cue -O always -o flac -t "%n - %t" -d outdir source`) streaming stderr
-- [ ] run tools through a shared context-aware helper (`exec.CommandContext`): `cuebreakpoints` gets a short timeout (~30s, as in `app.py`); `shnsplit` runs cancellable with **no** hard timeout (long jobs), killed when the job context is canceled; stream `shnsplit` stderr with a `bufio.Scanner` sized for long lines; `defer` removal of the temp UTF-8 cue on every exit path
-- [ ] pure `parseShnsplitLine(line)` → `{trackName, isProgressStep}` (matches `-->` / `OK` lines)
-- [ ] emit progress via an injected callback (so `internal/job` drives status); no direct global state; cap the split-half progress at `min(stepsSeen, trackCount)` (the pregap line also matches `-->`/`OK`, as in `app.py`)
-- [ ] write tests for `parseShnsplitLine` (captured shnsplit stderr samples, incl. no-match lines) + the progress cap (pregap line does not push past `trackCount`)
-- [ ] `go test ./internal/split` green
+- [x] implement pipeline start: locate source FLAC via `cue.SourceFLAC`, make UTF-8 temp cue, run `cuebreakpoints` (error surfaced), run `shnsplit` (`-f cue -O always -o flac -t "%n - %t" -d outdir source`) streaming stderr
+- [x] run tools through a shared context-aware helper (`exec.CommandContext`): `cuebreakpoints` gets a short timeout (~30s, as in `app.py`); `shnsplit` runs cancellable with **no** hard timeout (long jobs), killed when the job context is canceled; stream `shnsplit` stderr with a `bufio.Scanner` sized for long lines; `defer` removal of the temp UTF-8 cue on every exit path
+- [x] pure `parseShnsplitLine(line)` → `{trackName, isProgressStep}` (matches `-->` / `OK` lines)
+- [x] emit progress via an injected callback (so `internal/job` drives status); no direct global state; cap the split-half progress at `min(stepsSeen, trackCount)` (the pregap line also matches `-->`/`OK`, as in `app.py`)
+- [x] write tests for `parseShnsplitLine` (captured shnsplit stderr samples, incl. no-match lines) + the progress cap (pregap line does not push past `trackCount`)
+- [x] `go test ./internal/split` green
 
 ### Task 8: `internal/split` — tagging, pregap removal, cover copy
 **Files:**

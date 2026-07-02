@@ -272,10 +272,10 @@ plus a **React + Vite + TypeScript SPA**, shipping the approved "Waveform & Cuts
 **Files:**
 - Create: `frontend/src/tree/buildTree.ts`, `frontend/src/tree/buildTree.test.ts`, `frontend/src/components/Sidebar.tsx`, `frontend/src/components/Tree.tsx`
 
-- [ ] `buildTree(items)`: flat rel-paths → nested folders/leaves with per-node leaf counts; `filterTree(q)`; open-state map (persisted to `localStorage`)
-- [ ] `Sidebar` (search + Rescan) + `Tree` (folders with counts, album leaves with signal icon, done ✓, active selection) per prototype
-- [ ] write Vitest tests for `buildTree` (nesting, "[this folder]" leaf case, counts) + filter
-- [ ] `npm run test` + `npm run build` green
+- [x] `buildTree(items)`: flat rel-paths → nested folders/leaves with per-node leaf counts; `filterTree(q)`; open-state map (persisted to `localStorage`)
+- [x] `Sidebar` (search + Rescan) + `Tree` (folders with counts, album leaves with signal icon, done ✓, active selection) per prototype
+- [x] write Vitest tests for `buildTree` (nesting, "[this folder]" leaf case, counts) + filter
+- [x] `npm run test` + `npm run build` green
 
 ### Task 15: App shell — topbar, two-pane layout, sidebar resize + mobile drawer
 **Files:**

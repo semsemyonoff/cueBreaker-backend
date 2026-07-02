@@ -11,7 +11,7 @@ afterEach(() => {
 })
 
 describe('App', () => {
-  it('renders the app shell', async () => {
+  it('renders the app shell and the empty-scan state when no albums are found', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn((url: string) => {
@@ -23,6 +23,29 @@ describe('App', () => {
     render(<App />)
 
     expect(await screen.findByLabelText('Toggle library')).toBeInTheDocument()
-    expect(screen.getByText('Select an album from the library.')).toBeInTheDocument()
+    expect(await screen.findByText('No unsplit CUE + FLAC albums found')).toBeInTheDocument()
+  })
+
+  it('prompts to select an album once albums are scanned', async () => {
+    const item = {
+      path: 'Artist/Album',
+      abs_path: '/input/Artist/Album',
+      cue_files: ['album.cue'],
+      flac_files: ['album.flac'],
+      split_done: false,
+      output_tracks: 0,
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        if (url === '/api/version') return Promise.resolve(jsonResponse({ version: '1.0.0' }))
+        if (url === '/api/scan') return Promise.resolve(jsonResponse([item]))
+        return Promise.resolve(jsonResponse([]))
+      }),
+    )
+
+    render(<App />)
+
+    expect(await screen.findByText('Select an album from the library.')).toBeInTheDocument()
   })
 })

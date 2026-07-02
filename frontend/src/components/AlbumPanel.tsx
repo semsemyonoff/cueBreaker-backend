@@ -1,14 +1,19 @@
 import { useEffect, useState } from 'react'
 import * as api from '../api/client'
 import type { Preview, ScanPair } from '../api/types'
+import { usePoll } from '../split/usePoll'
 import CueSelector from './CueSelector'
+import SplitAction from './SplitAction'
 import TrackTable from './TrackTable'
-import Waveform from './Waveform'
+import Waveform, { type WaveformVariant } from './Waveform'
 import '../styles/album.css'
+import '../styles/states.css'
 
 export interface AlbumPanelProps {
   item: ScanPair
 }
+
+const ACTIVE_STATUSES = new Set(['queued', 'splitting', 'tagging'])
 
 interface Breadcrumb {
   parents: string[]
@@ -25,10 +30,17 @@ export default function AlbumPanel({ item }: AlbumPanelProps) {
   const [preview, setPreview] = useState<Preview | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [hoveredTrack, setHoveredTrack] = useState<number | null>(null)
+  const [jobId, setJobId] = useState<string | null>(null)
+  const [splitError, setSplitError] = useState<string | null>(null)
 
   useEffect(() => {
     setCueFile(item.cue_files[0] ?? '')
   }, [item.path, item.cue_files])
+
+  useEffect(() => {
+    setJobId(null)
+    setSplitError(null)
+  }, [item.path, cueFile])
 
   useEffect(() => {
     if (!cueFile) return
@@ -47,6 +59,18 @@ export default function AlbumPanel({ item }: AlbumPanelProps) {
       cancelled = true
     }
   }, [item.path, cueFile])
+
+  const poll = usePoll(jobId)
+
+  async function handleSplit() {
+    setSplitError(null)
+    try {
+      const accepted = await api.split(item.path, cueFile)
+      setJobId(accepted.job_id)
+    } catch (err) {
+      setSplitError(err instanceof Error ? err.message : String(err))
+    }
+  }
 
   const { parents, leaf } = breadcrumb(item.path)
   const crumbs = (
@@ -74,7 +98,20 @@ export default function AlbumPanel({ item }: AlbumPanelProps) {
     )
   }
 
-  const splitDone = preview.split_done
+  const job = poll.job
+  const active = job !== null && ACTIVE_STATUSES.has(job.status)
+  const splitDone = job?.status === 'done' ? true : preview.split_done
+  const fetchError = splitError ?? poll.fetchError
+
+  const variant: WaveformVariant = active ? 'active' : splitDone ? 'done' : 'idle'
+  const progress = job && job.progress_total > 0 ? (job.progress_current / job.progress_total) * 100 : 0
+
+  const waveCaption = active
+    ? `SPLITTING · ${job.progress_detail || job.message || 'working…'}`
+    : `${splitDone ? 'COMPLETE' : 'WAVEFORM'} · ${preview.tracks.length} cue breakpoints`
+
+  const pillClass = active ? 'pill pill-run' : splitDone ? 'pill pill-done' : 'pill pill-idle'
+  const pillLabel = active ? 'Splitting' : splitDone ? 'Split' : 'Unsplit'
 
   return (
     <div className="album">
@@ -98,9 +135,9 @@ export default function AlbumPanel({ item }: AlbumPanelProps) {
             </span>
           </div>
           <div className="metarow">
-            <span className={splitDone ? 'pill pill-done' : 'pill pill-idle'}>
+            <span className={pillClass}>
               <span className="pdot" />
-              {splitDone ? 'Split' : 'Unsplit'}
+              {pillLabel}
             </span>
             <CueSelector cueFiles={item.cue_files} value={cueFile} onChange={setCueFile} />
           </div>
@@ -108,18 +145,40 @@ export default function AlbumPanel({ item }: AlbumPanelProps) {
       </div>
       <div className="wavewrap">
         <div className="wavecap">
-          <span>{splitDone ? 'COMPLETE' : 'WAVEFORM'} · {preview.tracks.length} cue breakpoints</span>
+          <span>{waveCaption}</span>
           <span className="cuename">{cueFile}</span>
         </div>
         <Waveform
-          variant={splitDone ? 'done' : 'idle'}
+          variant={variant}
           tracks={preview.tracks}
           totalSeconds={preview.total_seconds}
+          progress={progress}
           hoveredTrack={hoveredTrack}
           onHoverTrack={setHoveredTrack}
         />
+        {active && job && (
+          <div className="statusrow">
+            <span className="sl">
+              <span className="spin" />
+              {job.progress_detail || job.message}
+            </span>
+            <span className="sr">
+              {job.progress_total > 0
+                ? `${job.progress_current} / ${job.progress_total} · ${Math.round(progress)}%`
+                : job.status}
+            </span>
+          </div>
+        )}
       </div>
       <TrackTable tracks={preview.tracks} hoveredTrack={hoveredTrack} onHoverTrack={setHoveredTrack} />
+      <SplitAction
+        trackCount={preview.tracks.length}
+        splitDone={preview.split_done}
+        outputTracks={preview.output_tracks}
+        job={job}
+        error={fetchError}
+        onSplit={handleSplit}
+      />
     </div>
   )
 }

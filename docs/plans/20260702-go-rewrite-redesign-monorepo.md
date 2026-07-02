@@ -313,10 +313,10 @@ plus a **React + Vite + TypeScript SPA**, shipping the approved "Waveform & Cuts
 - Create: `frontend/src/split/usePoll.ts`, `frontend/src/split/usePoll.test.ts`, `frontend/src/components/SplitAction.tsx`, `frontend/src/components/States.tsx`, `frontend/src/styles/states.css`
 - Modify: `frontend/src/components/AlbumPanel.tsx`
 
-- [ ] Split button → `split()` → poll `status()` (~500ms) driving `Waveform` fill + status row + counter + disabled "Processing…"; done → results list + "Split again"; error → red status; overwrite warning when `split_done`
-- [ ] empty-scan + scanning states in the sidebar/panel per prototype
-- [ ] write Vitest tests for the polling reducer (queued→splitting→tagging→done and →error; stops on terminal)
-- [ ] `npm run test` + `npm run build` green
+- [x] Split button → `split()` → poll `status()` (~500ms) driving `Waveform` fill + status row + counter + disabled "Processing…"; done → results list + "Split again"; error → red status; overwrite warning when `split_done`
+- [x] empty-scan + scanning states in the sidebar/panel per prototype
+- [x] write Vitest tests for the polling reducer (queued→splitting→tagging→done and →error; stops on terminal)
+- [x] `npm run test` + `npm run build` green
 
 ### Task 19: Root orchestration — Makefile, multi-stage Dockerfile, README, cleanup
 **Files:**

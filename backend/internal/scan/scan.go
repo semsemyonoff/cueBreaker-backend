@@ -27,7 +27,10 @@ type Pair struct {
 // unsplit album), sorted by relative path. A directory whose CUE sheets are
 // all multi-file (already split) or reference a missing source is skipped.
 func FindPairs(inputDir, outputDir string) ([]Pair, error) {
-	var results []Pair
+	// Initialize non-nil so an empty library marshals to JSON [] rather than
+	// null; the SPA treats the response as an array (items.length) and would
+	// otherwise crash on the first-run empty scan.
+	results := []Pair{}
 
 	err := filepath.WalkDir(inputDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {

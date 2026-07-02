@@ -45,6 +45,10 @@ RUN apk add --no-cache \
 
 COPY --from=backend-builder /out/cuebreaker /usr/local/bin/cuebreaker
 
+# Create the default mount points so the server starts even when run without a
+# bind mount; EvalSymlinks(/input) at startup would otherwise fail and exit(1).
+RUN mkdir -p /input /output
+
 ENV CUEBREAKER_INPUT_DIR=/input \
     CUEBREAKER_OUTPUT_DIR=/output \
     CUEBREAKER_PORT=5000

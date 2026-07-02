@@ -153,6 +153,21 @@ func TestFindPairs_NoCueSkipped(t *testing.T) {
 	}
 }
 
+// A nil slice marshals to JSON null, which crashes the SPA (items.length);
+// FindPairs must return a non-nil empty slice for an empty library.
+func TestFindPairs_EmptyIsNonNil(t *testing.T) {
+	input := t.TempDir()
+	output := t.TempDir()
+
+	pairs, err := FindPairs(input, output)
+	if err != nil {
+		t.Fatalf("FindPairs: %v", err)
+	}
+	if pairs == nil {
+		t.Fatal("FindPairs returned nil slice; want non-nil empty slice")
+	}
+}
+
 func TestSearch(t *testing.T) {
 	pairs := []Pair{
 		{Path: "Artist/Album One"},

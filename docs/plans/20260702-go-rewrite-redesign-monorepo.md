@@ -292,10 +292,10 @@ plus a **React + Vite + TypeScript SPA**, shipping the approved "Waveform & Cuts
 **Files:**
 - Create: `frontend/src/waveform/geometry.ts`, `frontend/src/waveform/geometry.test.ts`, `frontend/src/components/Waveform.tsx`, `frontend/src/styles/waveform.css`
 
-- [ ] `geometry.ts`: synthetic bar heights (deterministic) + `cutPositions(tracks, totalSeconds)` → `left%` **only for tracks with `start_seconds > 0`** (skip the track-1 cut at 0%, matching the prototype which labels from `02`); when `totalSeconds <= 0` (unknown, e.g. a WAV without a readable duration) render bars with **no** cut-lines instead of bunching them at 0; `fillClip(progress)` + playhead position
-- [ ] `Waveform` variants `idle|active|done` with real cut-lines + progress fill + playhead; `prefers-reduced-motion` respected
-- [ ] write Vitest tests for `cutPositions` (INDEX+duration→percent, clamp, first cut is track `02` not `01`, `totalSeconds<=0` ⇒ no cut-lines) + fill/playhead
-- [ ] `npm run test` + `npm run build` green
+- [x] `geometry.ts`: synthetic bar heights (deterministic) + `cutPositions(tracks, totalSeconds)` → `left%` **only for tracks with `start_seconds > 0`** (skip the track-1 cut at 0%, matching the prototype which labels from `02`); when `totalSeconds <= 0` (unknown, e.g. a WAV without a readable duration) render bars with **no** cut-lines instead of bunching them at 0; `fillClip(progress)` + playhead position
+- [x] `Waveform` variants `idle|active|done` with real cut-lines + progress fill + playhead; `prefers-reduced-motion` respected
+- [x] write Vitest tests for `cutPositions` (INDEX+duration→percent, clamp, first cut is track `02` not `01`, `totalSeconds<=0` ⇒ no cut-lines) + fill/playhead
+- [x] `npm run test` + `npm run build` green
 
 ### Task 17: AlbumPanel — header, chips, CUE selector, track table, hover link
 **Files:**

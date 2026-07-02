@@ -282,11 +282,11 @@ plus a **React + Vite + TypeScript SPA**, shipping the approved "Waveform & Cuts
 - Create: `frontend/src/components/Shell.tsx`, `frontend/src/components/Topbar.tsx`, `frontend/src/ui/resizer.ts`, `frontend/src/ui/resizer.test.ts`, `frontend/src/styles/shell.css`
 - Modify: `frontend/src/App.tsx`
 
-- [ ] `Shell` grid (topbar + sidebar + work panel); `Topbar` with logo (`logo.svg`), wordmark, version badge, counts (albums/unsplit/splitting)
-- [ ] sidebar resizer (drag, clamp, `localStorage` persistence); mobile: sidebar becomes a drawer + scrim toggled by a burger
-- [ ] wire `scan()` on load → tree; selecting an album sets the active path
-- [ ] write Vitest tests for `resizer` (clamp + persist); render test for drawer open/close
-- [ ] `npm run test` + `npm run build` green
+- [x] `Shell` grid (topbar + sidebar + work panel); `Topbar` with logo (`logo.svg`), wordmark, version badge, counts (albums/unsplit/splitting)
+- [x] sidebar resizer (drag, clamp, `localStorage` persistence); mobile: sidebar becomes a drawer + scrim toggled by a burger
+- [x] wire `scan()` on load → tree; selecting an album sets the active path
+- [x] write Vitest tests for `resizer` (clamp + persist); render test for drawer open/close
+- [x] `npm run test` + `npm run build` green
 
 ### Task 16: Waveform component + cut-line geometry
 **Files:**

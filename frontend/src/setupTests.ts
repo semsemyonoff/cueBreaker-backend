@@ -1,4 +1,11 @@
+import { afterEach } from 'vitest'
+import { cleanup } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
+
+// vitest is configured without `test.globals: true`, so @testing-library/react's
+// afterEach-based auto-cleanup detection never fires; register it explicitly so
+// component trees rendered in one test don't leak into the next.
+afterEach(cleanup)
 
 // Node 22+'s built-in global `localStorage` shadows jsdom's window.localStorage
 // under Vitest's jsdom environment, leaving `window.localStorage` undefined.

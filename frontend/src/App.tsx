@@ -1,7 +1,32 @@
+import { useCallback, useEffect, useState } from 'react'
+import * as api from './api/client'
+import type { ScanPair } from './api/types'
+import Shell from './components/Shell'
+import './styles/shell.css'
+
 export default function App() {
+  const [items, setItems] = useState<ScanPair[]>([])
+  const [selected, setSelected] = useState<ScanPair | null>(null)
+  const [version, setVersion] = useState('')
+
+  const rescan = useCallback(() => {
+    api
+      .scan()
+      .then(setItems)
+      .catch(() => setItems([]))
+  }, [])
+
+  useEffect(() => {
+    rescan()
+    api
+      .version()
+      .then((v) => setVersion(v.version))
+      .catch(() => setVersion(''))
+  }, [rescan])
+
   return (
-    <div className="app">
-      <p>cueBreaker</p>
-    </div>
+    <Shell items={items} selectedPath={selected?.path ?? null} onSelect={setSelected} onRescan={rescan} version={version}>
+      {selected ? <p>{selected.path}</p> : <p>Select an album from the library.</p>}
+    </Shell>
   )
 }

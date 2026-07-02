@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { renderHook, waitFor } from '@testing-library/react'
 import type { JobStatus } from '../api/types'
-import { initialPollState, isTerminal, pollReducer, type PollState } from './usePoll'
+import { initialPollState, isTerminal, pollReducer, usePoll, type PollState } from './usePoll'
 
 function job(overrides: Partial<JobStatus>): JobStatus {
   return {
@@ -68,5 +69,68 @@ describe('pollReducer', () => {
 
     state = pollReducer(state, { type: 'reset' })
     expect(state).toEqual(initialPollState)
+  })
+})
+
+function jobResponse(body: JobStatus): Response {
+  return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
+}
+
+const idle = () => new Promise((resolve) => setTimeout(resolve, 40))
+
+describe('usePoll hook', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('polls repeatedly while active and stops once the job is done', async () => {
+    const statuses: JobStatus['status'][] = ['splitting', 'splitting', 'done']
+    let i = 0
+    const fetchMock = vi.fn(() => {
+      const status = statuses[Math.min(i, statuses.length - 1)]
+      i += 1
+      return Promise.resolve(jobResponse(job({ status })))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { result } = renderHook(() => usePoll('Artist/Album/album.cue', 0, 10))
+
+    await waitFor(() => expect(result.current.job?.status).toBe('done'))
+    const callsAtDone = fetchMock.mock.calls.length
+    expect(callsAtDone).toBeGreaterThanOrEqual(3)
+
+    await idle()
+    expect(fetchMock.mock.calls.length).toBe(callsAtDone) // no polling after terminal
+  })
+
+  it('restarts polling when runToken changes even though jobId is unchanged', async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(jobResponse(job({ status: 'done' }))))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { result, rerender } = renderHook(({ jobId, runToken }) => usePoll(jobId, runToken, 10), {
+      initialProps: { jobId: 'Artist/Album/album.cue', runToken: 0 },
+    })
+
+    await waitFor(() => expect(result.current.job?.status).toBe('done'))
+    const callsAfterFirst = fetchMock.mock.calls.length
+
+    // A split-again returns the same deterministic jobId; only runToken changes.
+    rerender({ jobId: 'Artist/Album/album.cue', runToken: 1 })
+
+    await waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThan(callsAfterFirst))
+    await waitFor(() => expect(result.current.job?.status).toBe('done'))
+  })
+
+  it('records a fetch-level error and stops polling', async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(new Response('boom', { status: 500 })))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { result } = renderHook(() => usePoll('Artist/Album/album.cue', 0, 10))
+
+    await waitFor(() => expect(result.current.fetchError).not.toBeNull())
+    const callsAtError = fetchMock.mock.calls.length
+
+    await idle()
+    expect(fetchMock.mock.calls.length).toBe(callsAtError) // no polling after fetch error
   })
 })

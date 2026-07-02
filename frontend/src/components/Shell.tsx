@@ -10,11 +10,10 @@ export interface ShellProps {
   onSelect: (item: ScanPair) => void
   onRescan: () => void
   version: string
-  splittingCount?: number
   children?: ReactNode
 }
 
-export default function Shell({ items, selectedPath, onSelect, onRescan, version, splittingCount = 0, children }: ShellProps) {
+export default function Shell({ items, selectedPath, onSelect, onRescan, version, children }: ShellProps) {
   const [sidebarWidth, setSidebarWidth] = useState(() => loadWidth())
   const [drawerOpen, setDrawerOpen] = useState(false)
   // Holds the pointerup/pointermove teardown for the drag currently in
@@ -68,7 +67,6 @@ export default function Shell({ items, selectedPath, onSelect, onRescan, version
         version={version}
         albumCount={albumCount}
         unsplitCount={unsplitCount}
-        splittingCount={splittingCount}
         onBurgerClick={() => setDrawerOpen((open) => !open)}
       />
       <div className="dbody">

@@ -4,8 +4,6 @@ CUEBREAKER_TAG ?= latest
 # Target platforms for multi-arch build
 CUEBREAKER_PLATFORMS ?= linux/amd64,linux/arm64
 
-export CUEBREAKER_IMAGE CUEBREAKER_TAG CUEBREAKER_PLATFORMS
-
 APP_VERSION ?= dev
 
 .PHONY: frontend-build build dev test lint docker-build
@@ -37,6 +35,10 @@ lint:
 	cd backend && go vet ./...
 	npm --prefix frontend run lint
 
-# Build multi-arch image and push to registry
+# Build and push a multi-arch image to $(CUEBREAKER_IMAGE):$(CUEBREAKER_TAG)
 docker-build:
-	./build.sh
+	docker buildx build \
+		--platform $(CUEBREAKER_PLATFORMS) \
+		--build-arg APP_VERSION=$(APP_VERSION) \
+		--tag $(CUEBREAKER_IMAGE):$(CUEBREAKER_TAG) \
+		--push .

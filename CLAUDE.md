@@ -30,12 +30,14 @@ Docker image):
 
 ## Make targets
 
-- `make build` — `frontend-build` then `go build` → `backend/cuebreaker` (single binary, SPA embedded)
+- `make build` — `frontend-build` then `go build` → `backend/cuebreaker` (single binary, SPA embedded).
+  Version injected via `-ldflags "-X main.version=$(APP_VERSION)"` (default `dev`), surfaced at `GET /api/version`
 - `make frontend-build` — `npm ci` + `npm run build` in `frontend/`, copies `dist/*` into `backend/web/dist/`
 - `make dev` — Vite dev server (proxies `/api`) + `go run` for the backend, concurrently
 - `make test` — `go test ./...` + `npm run test`
 - `make lint` — `go vet ./...` + `npm run lint`
-- `make docker-build` — multi-arch build/push via `./build.sh`
+- `make docker-build` — multi-arch `docker buildx` build/push to `$(CUEBREAKER_IMAGE):$(CUEBREAKER_TAG)`
+  for `$(CUEBREAKER_PLATFORMS)`
 
 ## Conventions
 

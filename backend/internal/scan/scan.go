@@ -31,7 +31,13 @@ func FindPairs(inputDir, outputDir string) ([]Pair, error) {
 
 	err := filepath.WalkDir(inputDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return err
+			// A single unreadable entry (odd perms, transient mount, lost+found)
+			// shouldn't blank the whole library; skip it and keep walking. Only
+			// an unreadable input root is fatal.
+			if path == inputDir {
+				return err
+			}
+			return nil
 		}
 		if !d.IsDir() {
 			return nil
@@ -39,7 +45,7 @@ func FindPairs(inputDir, outputDir string) ([]Pair, error) {
 
 		entries, err := os.ReadDir(path)
 		if err != nil {
-			return err
+			return nil
 		}
 
 		var cueFiles, flacFiles []string

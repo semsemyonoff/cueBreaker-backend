@@ -110,8 +110,13 @@ required on your `PATH` for local `make dev`/`make build`):
 
 `docker build .` runs a multi-stage build: Node builds the SPA, Go builds the backend with the
 SPA embedded, and the runtime stage is Alpine with `shntool`/`cuetools`/`flac` installed —
-mirroring the tool stack above. `./build.sh` (used by `make docker-build`) builds and pushes a
-multi-arch image via `docker buildx`.
+mirroring the tool stack above. `make docker-build` builds and pushes a multi-arch image via
+`docker buildx` to `$CUEBREAKER_IMAGE:$CUEBREAKER_TAG` (defaults `semsemyonoff/cuebreaker:latest`)
+for `$CUEBREAKER_PLATFORMS` (default `linux/amd64,linux/arm64`).
+
+The build version is injected at build time via `-ldflags "-X main.version=$APP_VERSION"`
+(`make build APP_VERSION=1.2.3`, or Docker `--build-arg APP_VERSION=1.2.3`; default `dev`) and
+surfaced at runtime by `GET /api/version` → `{"version": "..."}`.
 
 ### Future: repo split
 

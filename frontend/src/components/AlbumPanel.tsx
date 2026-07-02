@@ -31,6 +31,7 @@ export default function AlbumPanel({ item }: AlbumPanelProps) {
   const [error, setError] = useState<string | null>(null)
   const [hoveredTrack, setHoveredTrack] = useState<number | null>(null)
   const [jobId, setJobId] = useState<string | null>(null)
+  const [runToken, setRunToken] = useState(0)
   const [splitError, setSplitError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -60,12 +61,15 @@ export default function AlbumPanel({ item }: AlbumPanelProps) {
     }
   }, [item.path, cueFile])
 
-  const poll = usePoll(jobId)
+  const poll = usePoll(jobId, runToken)
 
   async function handleSplit() {
     setSplitError(null)
     try {
       const accepted = await api.split(item.path, cueFile)
+      // Job IDs are deterministic, so a split-again/retry returns the same ID;
+      // bump runToken to force usePoll to restart even when jobId is unchanged.
+      setRunToken((n) => n + 1)
       setJobId(accepted.job_id)
     } catch (err) {
       setSplitError(err instanceof Error ? err.message : String(err))

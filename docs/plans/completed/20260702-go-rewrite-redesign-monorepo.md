@@ -337,9 +337,9 @@ plus a **React + Vite + TypeScript SPA**, shipping the approved "Waveform & Cuts
 - [x] confirm `make build` single-binary serves the SPA and drives a split end-to-end — `make build` succeeded, binary starts and serves real SPA (`/`) + `/api/version` + `/api/scan`; end-to-end real split (skipped - not automatable: `shnsplit`/`cuebreakpoints`/`cueprint` not installed in this environment; deferred to Post-Completion "Real-tool split smoke test")
 
 ### Task 21: [Final] Update documentation
-- [ ] finalize `README.md`; add/refresh `CLAUDE.md` (Go+React monorepo layout, tool deps, `make` targets, the deferred repo-split direction)
-- [ ] ensure `docs/prototype/` note points at the design source of truth
-- [ ] move this plan to `docs/plans/completed/`
+- [x] finalize `README.md`; add/refresh `CLAUDE.md` (Go+React monorepo layout, tool deps, `make` targets, the deferred repo-split direction)
+- [x] ensure `docs/prototype/` note points at the design source of truth (already present: "Live/editable source (Claude Design)" link in `docs/prototype/README.md`)
+- [x] move this plan to `docs/plans/completed/`
 
 ## Post-Completion
 *Items requiring manual intervention or external systems — informational only.*

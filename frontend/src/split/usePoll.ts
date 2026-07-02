@@ -31,9 +31,12 @@ export function isTerminal(state: PollState): boolean {
 /**
  * Polls `GET /api/status/{jobId}` every `intervalMs` while `jobId` is set,
  * stopping once the job reaches a terminal status (`done`/`error`) or a
- * fetch fails. Resets to `initialPollState` whenever `jobId` changes.
+ * fetch fails. Resets to `initialPollState` whenever `jobId` changes, or
+ * whenever `runToken` changes — bump `runToken` to restart polling for a
+ * re-run whose job ID is identical (split-again / retry), which React would
+ * otherwise treat as a no-op state update.
  */
-export function usePoll(jobId: string | null, intervalMs = 500): PollState {
+export function usePoll(jobId: string | null, runToken = 0, intervalMs = 500): PollState {
   const [state, dispatch] = useReducer(pollReducer, initialPollState)
 
   useEffect(() => {
@@ -62,7 +65,7 @@ export function usePoll(jobId: string | null, intervalMs = 500): PollState {
       cancelled = true
       clearInterval(timer)
     }
-  }, [jobId, intervalMs])
+  }, [jobId, runToken, intervalMs])
 
   return state
 }

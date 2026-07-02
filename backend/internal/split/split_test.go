@@ -184,8 +184,22 @@ func TestRun_ContextCanceledKillsShnsplit(t *testing.T) {
 	}
 }
 
-func TestBreakpointsTimeout(t *testing.T) {
-	if breakpointsTimeout != 30*time.Second {
-		t.Fatalf("breakpointsTimeout = %v, want 30s", breakpointsTimeout)
+func TestRun_ShnsplitFails(t *testing.T) {
+	sourceDir, cuePath, outDir := setupSource(t)
+	toolDir := t.TempDir()
+	writeFakeTool(t, toolDir, "cuebreakpoints", `exit 0`)
+	writeFakeTool(t, toolDir, "shnsplit", `echo "possibly corrupt file" >&2; exit 1`)
+	t.Setenv("PATH", toolDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	_, err := Run(context.Background(), Options{
+		CuePath:   cuePath,
+		SourceDir: sourceDir,
+		OutDir:    outDir,
+	})
+	if err == nil || !strings.Contains(err.Error(), "shnsplit failed") {
+		t.Fatalf("Run() error = %v, want shnsplit failure", err)
+	}
+	if !strings.Contains(err.Error(), "possibly corrupt file") {
+		t.Fatalf("Run() error = %v, want tool stderr surfaced", err)
 	}
 }

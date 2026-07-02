@@ -23,7 +23,8 @@ type Server struct {
 	// construction; every path-security check below is relative to it.
 	realInputDir string
 
-	mux *http.ServeMux
+	static http.Handler
+	mux    *http.ServeMux
 }
 
 // New builds a Server for cfg, backed by jobs and reporting version at
@@ -38,12 +39,18 @@ func New(cfg config.Config, jobs *job.Manager, version string, logger *slog.Logg
 		return nil, fmt.Errorf("server: resolve input dir %q: %w", cfg.InputDir, err)
 	}
 
+	static, err := newStaticHandler()
+	if err != nil {
+		return nil, err
+	}
+
 	s := &Server{
 		cfg:          cfg,
 		jobs:         jobs,
 		version:      version,
 		logger:       logger,
 		realInputDir: realInputDir,
+		static:       static,
 		mux:          http.NewServeMux(),
 	}
 	s.routes()
@@ -58,6 +65,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/split", s.handleSplit)
 	s.mux.HandleFunc("GET /api/status/{job_id...}", s.handleStatus)
 	s.mux.HandleFunc("GET /api/version", s.handleVersion)
+	s.mux.Handle("/", s.static)
 }
 
 // ServeHTTP dispatches to the API mux, logging every request's method, path,

@@ -244,10 +244,10 @@ plus a **React + Vite + TypeScript SPA**, shipping the approved "Waveform & Cuts
 - Create: `backend/web/dist/index.html` (placeholder), `backend/web/dist/.gitkeep`, `backend/web/embed.go`
 - Modify: `backend/cmd/cuebreaker/main.go`
 
-- [ ] embed with `//go:embed all:dist` in `backend/web/embed.go` (embed patterns are relative to the package dir, so `dist`, NOT `web/dist`; `all:` includes the `.gitkeep`/dotfiles); serve via `fs.Sub(embedded, "dist")`, fall back to `index.html` for unknown non-`/api` paths
-- [ ] wire `main.go`: `config.Load` → `job.Manager` → `server.New(...)` → `ListenAndServe` on `CUEBREAKER_PORT`; inject `version`
-- [ ] write tests: asset served, unknown path → index.html, `/api/*` never falls back to SPA
-- [ ] `go build ./... && go test ./...` green (full backend compiles with placeholder dist)
+- [x] embed with `//go:embed all:dist` in `backend/web/embed.go` (embed patterns are relative to the package dir, so `dist`, NOT `web/dist`; `all:` includes the `.gitkeep`/dotfiles); serve via `fs.Sub(embedded, "dist")`, fall back to `index.html` for unknown non-`/api` paths
+- [x] wire `main.go`: `config.Load` → `job.Manager` → `server.New(...)` → `ListenAndServe` on `CUEBREAKER_PORT`; inject `version`
+- [x] write tests: asset served, unknown path → index.html, `/api/*` never falls back to SPA
+- [x] `go build ./... && go test ./...` green (full backend compiles with placeholder dist)
 
 ### Task 12: Frontend scaffold (Vite + React + TS + Vitest) + design tokens
 **Files:**

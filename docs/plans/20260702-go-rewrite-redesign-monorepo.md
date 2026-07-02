@@ -192,9 +192,9 @@ plus a **React + Vite + TypeScript SPA**, shipping the approved "Waveform & Cuts
 **Files:**
 - Create: `backend/internal/scan/cover.go`, `backend/internal/scan/cover_test.go`
 
-- [ ] port `find_cover`: patterns `cover/folder/front/album` (case variants) with exts `jpg,jpeg,png,bmp,gif,webp`; else first image in dir; return the match only if its `EvalSymlinks` real path stays under `INPUT_DIR` (reject symlink-escape covers)
-- [ ] write tests (named match priority, extension filter, fallback-to-first, none found, symlink-escape rejected)
-- [ ] `go test ./internal/scan` green
+- [x] port `find_cover`: patterns `cover/folder/front/album` (case variants) with exts `jpg,jpeg,png,bmp,gif,webp`; else first image in dir; return the match only if its `EvalSymlinks` real path stays under `INPUT_DIR` (reject symlink-escape covers)
+- [x] write tests (named match priority, extension filter, fallback-to-first, none found, symlink-escape rejected)
+- [x] `go test ./internal/scan` green
 
 ### Task 7: `internal/split` — shnsplit orchestration + progress parsing
 **Files:**

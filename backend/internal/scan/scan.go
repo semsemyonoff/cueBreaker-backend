@@ -78,7 +78,7 @@ func FindPairs(inputDir, outputDir string) ([]Pair, error) {
 		}
 
 		firstCue := filepath.Join(path, validCues[0])
-		done, outputTracks := checkOutputStatus(outputDir, relPath, firstCue)
+		done, outputTracks := CheckOutputStatus(outputDir, relPath, firstCue)
 
 		results = append(results, Pair{
 			Path:         relPath,
@@ -98,10 +98,10 @@ func FindPairs(inputDir, outputDir string) ([]Pair, error) {
 	return results, nil
 }
 
-// checkOutputStatus compares the number of FLAC files already present under
+// CheckOutputStatus compares the number of FLAC files already present under
 // outputDir/relPath against the track count parsed from cuePath, reporting
 // whether the album looks fully split.
-func checkOutputStatus(outputDir, relPath, cuePath string) (done bool, outputTracks int) {
+func CheckOutputStatus(outputDir, relPath, cuePath string) (done bool, outputTracks int) {
 	outDir := filepath.Join(outputDir, relPath)
 	info, err := os.Stat(outDir)
 	if err != nil || !info.IsDir() {

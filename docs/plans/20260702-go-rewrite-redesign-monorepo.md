@@ -232,11 +232,11 @@ plus a **React + Vite + TypeScript SPA**, shipping the approved "Waveform & Cuts
 **Files:**
 - Create: `backend/internal/server/server.go`, `backend/internal/server/handlers.go`, `backend/internal/server/handlers_test.go`
 
-- [ ] ServeMux (Go 1.22+ patterns) with `GET /api/scan`, `GET /api/search`, `POST /api/preview`, `GET /api/cover/{path...}`, `POST /api/split`, `GET /api/status/{job_id...}`, `GET /api/version`
-- [ ] `preview` returns the extended shape (Technical Details): resolves the FLAC via `cue.SourceFLAC` and fills `total_seconds` from `cue.TotalSeconds` (0 if unreadable, non-fatal), plus per-track `start_seconds`; realpath containment under `INPUT_DIR` (403 on escape) on preview/cover/split — trailing-slash containment on all three (a deliberate tightening vs `app.py`'s looser cover check)
-- [ ] `slog` request/pipeline logging preserving today's per-track detail
-- [ ] write handler tests (`httptest`): scan/preview/version JSON shape; `total_seconds` populated from the resolved FLAC; preview missing-cue → 404; path-traversal → 403; split enqueue → 202/409; status not-found → 404
-- [ ] `go test ./internal/server` green
+- [x] ServeMux (Go 1.22+ patterns) with `GET /api/scan`, `GET /api/search`, `POST /api/preview`, `GET /api/cover/{path...}`, `POST /api/split`, `GET /api/status/{job_id...}`, `GET /api/version`
+- [x] `preview` returns the extended shape (Technical Details): resolves the FLAC via `cue.SourceFLAC` and fills `total_seconds` from `cue.TotalSeconds` (0 if unreadable, non-fatal), plus per-track `start_seconds`; realpath containment under `INPUT_DIR` (403 on escape) on preview/cover/split — trailing-slash containment on all three (a deliberate tightening vs `app.py`'s looser cover check)
+- [x] `slog` request/pipeline logging preserving today's per-track detail
+- [x] write handler tests (`httptest`): scan/preview/version JSON shape; `total_seconds` populated from the resolved FLAC; preview missing-cue → 404; path-traversal → 403; split enqueue → 202/409; status not-found → 404
+- [x] `go test ./internal/server` green
 
 ### Task 11: `internal/server` — embed.FS SPA serving + SPA fallback + wire main
 **Files:**

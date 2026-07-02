@@ -185,6 +185,27 @@ func TestManager_ErrorMapping(t *testing.T) {
 	}
 }
 
+func TestManager_PanicContained(t *testing.T) {
+	splitFn := func(ctx context.Context, opts split.Options) ([]string, error) {
+		panic("unexpected shnsplit output")
+	}
+	m := NewManager(context.Background(), splitFn)
+	m.Enqueue("boom", split.Options{})
+
+	// The panicking job is marked errored rather than crashing the worker,
+	// and a subsequent job on the same manager still runs to completion.
+	s := waitForStatus(t, m, "boom", StatusError, time.Second)
+	if s.Message == "" {
+		t.Fatalf("Message = %q, want a non-empty panic message", s.Message)
+	}
+
+	m.splitFn = func(ctx context.Context, opts split.Options) ([]string, error) {
+		return nil, nil
+	}
+	m.Enqueue("after", split.Options{})
+	waitForStatus(t, m, "after", StatusDone, time.Second)
+}
+
 func TestManager_Get_NotFound(t *testing.T) {
 	m := NewManager(context.Background(), func(ctx context.Context, opts split.Options) ([]string, error) {
 		return nil, nil

@@ -2,6 +2,7 @@ package job
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"git.horn/cueBreaker/backend/internal/split"
@@ -92,6 +93,18 @@ func (m *Manager) worker() {
 
 func (m *Manager) run(qj queuedJob) {
 	defer qj.cancel()
+
+	// A panic in the split pipeline (unexpected tool output, a parsing
+	// surprise) must not escape this goroutine and crash the whole server:
+	// contain it to this job by marking it errored.
+	defer func() {
+		if r := recover(); r != nil {
+			m.update(qj.id, func(s *State) {
+				s.Status = StatusError
+				s.Message = fmt.Sprintf("split panicked: %v", r)
+			})
+		}
+	}()
 
 	m.update(qj.id, func(s *State) {
 		s.Status = StatusSplitting

@@ -263,10 +263,10 @@ plus a **React + Vite + TypeScript SPA**, shipping the approved "Waveform & Cuts
 **Files:**
 - Create: `frontend/src/api/types.ts`, `frontend/src/api/client.ts`, `frontend/src/api/client.test.ts`
 
-- [ ] define TS types for scan item, preview (incl. `total_seconds`, track `start_seconds`), job status, version
-- [ ] client functions: `scan()`, `search(q)`, `preview(path,cue)`, `split(path,cue)`, `status(jobId)`, `version()`, `coverUrl(path)` (with correct encoding for apostrophes/unsafe chars)
-- [ ] write Vitest tests with mocked `fetch` (success + error + URL encoding of tricky paths)
-- [ ] `npm run test` green
+- [x] define TS types for scan item, preview (incl. `total_seconds`, track `start_seconds`), job status, version
+- [x] client functions: `scan()`, `search(q)`, `preview(path,cue)`, `split(path,cue)`, `status(jobId)`, `version()`, `coverUrl(path)` (with correct encoding for apostrophes/unsafe chars)
+- [x] write Vitest tests with mocked `fetch` (success + error + URL encoding of tricky paths)
+- [x] `npm run test` green
 
 ### Task 14: Library tree — builder + Sidebar component
 **Files:**

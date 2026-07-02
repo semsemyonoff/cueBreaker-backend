@@ -161,12 +161,12 @@ plus a **React + Vite + TypeScript SPA**, shipping the approved "Waveform & Cuts
 **Files:**
 - Modify: `backend/internal/cue/cue.go` (new), `backend/internal/cue/cue_test.go`
 
-- [ ] parse album `PERFORMER/TITLE/FILE/REM GENRE/REM DATE` (`REM GENRE` tolerates optional quotes; `REM DATE` is unquoted `\S+`); split `TRACK N AUDIO` blocks; per track `TITLE/PERFORMER/INDEX 01`, with track `performer` defaulting to the album performer when absent
-- [ ] compute `StartSeconds` from `INDEX 01` `MM:SS:FF` (`m*60+s+f/75`); keep raw `index` string
-- [ ] add `cue_has_source_flac` (single existing `.flac`/`.wav` FILE ref ⇒ unsplit; multi-file ⇒ skip)
-- [ ] add pure `SourceFLAC(cueInfo, dir) (string, bool)` (resolve source: CUE `FILE` if it exists, else first `.flac`/`.wav` in dir) — shared by split (Task 7) and preview `total_seconds` (Task 10); resolve via `filepath.EvalSymlinks` and return the file only if its real path stays under `dir`/`INPUT_DIR` (reject `FILE "../x.flac"` and symlink escapes)
-- [ ] write tests for parse (multi-track, missing fields, track-performer defaulting, quoted/unquoted GENRE+DATE, multi-FILE detection) + `StartSeconds` math + `SourceFLAC` (FILE hit, fallback, none, `../` traversal + symlink-escape rejected)
-- [ ] `go test ./internal/cue` green
+- [x] parse album `PERFORMER/TITLE/FILE/REM GENRE/REM DATE` (`REM GENRE` tolerates optional quotes; `REM DATE` is unquoted `\S+`); split `TRACK N AUDIO` blocks; per track `TITLE/PERFORMER/INDEX 01`, with track `performer` defaulting to the album performer when absent
+- [x] compute `StartSeconds` from `INDEX 01` `MM:SS:FF` (`m*60+s+f/75`); keep raw `index` string
+- [x] add `cue_has_source_flac` (single existing `.flac`/`.wav` FILE ref ⇒ unsplit; multi-file ⇒ skip)
+- [x] add pure `SourceFLAC(cueInfo, dir) (string, bool)` (resolve source: CUE `FILE` if it exists, else first `.flac`/`.wav` in dir) — shared by split (Task 7) and preview `total_seconds` (Task 10); resolve via `filepath.EvalSymlinks` and return the file only if its real path stays under `dir`/`INPUT_DIR` (reject `FILE "../x.flac"` and symlink escapes)
+- [x] write tests for parse (multi-track, missing fields, track-performer defaulting, quoted/unquoted GENRE+DATE, multi-FILE detection) + `StartSeconds` math + `SourceFLAC` (FILE hit, fallback, none, `../` traversal + symlink-escape rejected)
+- [x] `go test ./internal/cue` green
 
 ### Task 4: `internal/cue` — FLAC duration via metaflac
 **Files:**

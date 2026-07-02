@@ -1,2 +1,10 @@
 .DS_Store
 .ralphex
+
+# node
+node_modules/
+frontend/dist/
+
+# go
+backend/cuebreaker
+backend/*.test

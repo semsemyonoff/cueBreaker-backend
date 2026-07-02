@@ -139,11 +139,11 @@ plus a **React + Vite + TypeScript SPA**, shipping the approved "Waveform & Cuts
 - Create: `backend/internal/config/config_test.go`
 - Create: `backend/.gitignore` (ignore `web/dist/*`, keep `web/dist/.gitkeep` + placeholder), `.gitignore` (root: node_modules, build artifacts)
 
-- [ ] init module `git.horn/cueBreaker/backend` (Go 1.23+); add `cmd/cuebreaker/main.go` with a `var version = "dev"` and a minimal `slog` setup that starts and logs config
-- [ ] implement `config.Load()` reading `CUEBREAKER_INPUT_DIR`/`OUTPUT_DIR`/`PORT` with defaults
-- [ ] set up directory skeleton `internal/{cue,scan,split,job,server}` (empty `doc.go` placeholders ok)
-- [ ] write tests for `config.Load()` (defaults, overrides, invalid port)
-- [ ] `go build ./...` + `go test ./...` green before next task
+- [x] init module `git.horn/cueBreaker/backend` (Go 1.23+); add `cmd/cuebreaker/main.go` with a `var version = "dev"` and a minimal `slog` setup that starts and logs config
+- [x] implement `config.Load()` reading `CUEBREAKER_INPUT_DIR`/`OUTPUT_DIR`/`PORT` with defaults
+- [x] set up directory skeleton `internal/{cue,scan,split,job,server}` (empty `doc.go` placeholders ok)
+- [x] write tests for `config.Load()` (defaults, overrides, invalid port)
+- [x] `go build ./...` + `go test ./...` green before next task
 
 ### Task 2: `internal/cue` — encoding-detecting reader + UTF-8 temp copy
 **Files:**

@@ -13,7 +13,9 @@ const ACTIVE_STATUSES = new Set(['queued', 'splitting', 'tagging'])
 
 /** Split button + results/error/overwrite-warning states below the track table. */
 export default function SplitAction({ trackCount, splitDone, outputTracks, job, error, onSplit }: SplitActionProps) {
-  const active = job !== null && ACTIVE_STATUSES.has(job.status)
+  // A fetch/split error means we're no longer tracking an in-progress job, so
+  // don't treat a stale active status as still processing — show Retry instead.
+  const active = error === null && job !== null && ACTIVE_STATUSES.has(job.status)
   const done = job?.status === 'done'
   const failMessage = job?.status === 'error' ? job.message : error
   const showOverwriteWarning = splitDone && job === null && !failMessage

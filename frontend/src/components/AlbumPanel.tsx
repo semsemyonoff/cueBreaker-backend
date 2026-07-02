@@ -103,7 +103,9 @@ export default function AlbumPanel({ item }: AlbumPanelProps) {
   }
 
   const job = poll.job
-  const active = job !== null && ACTIVE_STATUSES.has(job.status)
+  // A fetch failure halts polling on a possibly-stale `splitting`/`tagging` job;
+  // treat that as no-longer-active so the UI surfaces the error and offers Retry.
+  const active = poll.fetchError === null && job !== null && ACTIVE_STATUSES.has(job.status)
   const splitDone = job?.status === 'done' ? true : preview.split_done
   const fetchError = splitError ?? poll.fetchError
 

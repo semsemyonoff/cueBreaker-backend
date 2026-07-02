@@ -172,11 +172,11 @@ plus a **React + Vite + TypeScript SPA**, shipping the approved "Waveform & Cuts
 **Files:**
 - Create: `backend/internal/cue/duration.go`, `backend/internal/cue/duration_test.go`
 
-- [ ] `TotalSeconds(path)`: dispatch by extension — FLAC via `metaflac --show-total-samples --show-sample-rate` (→ `total_samples/sample_rate`); **WAV via a cheap RIFF-header read** (`data` chunk bytes / byte-rate, no decode); return 0 + error on failure (non-fatal — callers/frontend degrade gracefully)
-- [ ] factor the numeric parsing into pure `parseMetaflacDuration(stdout)` and `parseWavDuration(header)` for testing
-- [ ] write tests for `parseMetaflacDuration` (valid, zero rate, garbage) + `parseWavDuration` (valid header, truncated/garbage) using captured samples
-- [ ] add a tool-presence-guarded test that runs real `metaflac` only when available (else skip)
-- [ ] `go test ./internal/cue` green
+- [x] `TotalSeconds(path)`: dispatch by extension — FLAC via `metaflac --show-total-samples --show-sample-rate` (→ `total_samples/sample_rate`); **WAV via a cheap RIFF-header read** (`data` chunk bytes / byte-rate, no decode); return 0 + error on failure (non-fatal — callers/frontend degrade gracefully)
+- [x] factor the numeric parsing into pure `parseMetaflacDuration(stdout)` and `parseWavDuration(header)` for testing
+- [x] write tests for `parseMetaflacDuration` (valid, zero rate, garbage) + `parseWavDuration` (valid header, truncated/garbage) using captured samples
+- [x] add a tool-presence-guarded test that runs real `metaflac` only when available (else skip)
+- [x] `go test ./internal/cue` green
 
 ### Task 5: `internal/scan` — pair discovery + already-split status
 **Files:**

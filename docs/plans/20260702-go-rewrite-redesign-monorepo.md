@@ -253,11 +253,11 @@ plus a **React + Vite + TypeScript SPA**, shipping the approved "Waveform & Cuts
 **Files:**
 - Create: `frontend/package.json`, `frontend/vite.config.ts`, `frontend/tsconfig.json`, `frontend/index.html`, `frontend/src/main.tsx`, `frontend/src/App.tsx`, `frontend/src/styles/tokens.css`, `frontend/src/styles/base.css`, `frontend/src/main.test.ts`
 
-- [ ] init npm with `react@19`, `react-dom@19`, `vite`, `typescript`, `vitest`, `@testing-library/react`, `jsdom`; scripts `dev/build/test/lint`
-- [ ] `vite.config.ts`: `base: '/'`, `build.outDir` default `dist`, dev `server.proxy` for `/api` → `http://localhost:5000`; Vitest config (jsdom)
-- [ ] port palette tokens + fonts (Manrope, JetBrains Mono) from `docs/prototype/README.md`/`cueBreaker-prototype.html` into `tokens.css`/`base.css`
-- [ ] write a sanity Vitest test (renders `App` shell) to prove the toolchain
-- [ ] `npm run build` + `npm run test` green
+- [x] init npm with `react@19`, `react-dom@19`, `vite`, `typescript`, `vitest`, `@testing-library/react`, `jsdom`; scripts `dev/build/test/lint`
+- [x] `vite.config.ts`: `base: '/'`, `build.outDir` default `dist`, dev `server.proxy` for `/api` → `http://localhost:5000`; Vitest config (jsdom)
+- [x] port palette tokens + fonts (Manrope, JetBrains Mono) from `docs/prototype/README.md`/`cueBreaker-prototype.html` into `tokens.css`/`base.css`
+- [x] write a sanity Vitest test (renders `App` shell) to prove the toolchain
+- [x] `npm run build` + `npm run test` green
 
 ### Task 13: Typed API client + domain types
 **Files:**

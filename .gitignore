@@ -4,6 +4,7 @@
 # node
 node_modules/
 frontend/dist/
+frontend/*.tsbuildinfo
 
 # go
 backend/cuebreaker

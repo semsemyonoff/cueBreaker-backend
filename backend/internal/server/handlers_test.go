@@ -313,6 +313,36 @@ func TestHandleSplit_EnqueueThenDuplicate(t *testing.T) {
 	close(release)
 }
 
+func TestHandleSplit_OutputEscapeRejected(t *testing.T) {
+	// A CUE that legitimately resolves under inputDir, reached via a ".."
+	// path whose input-side join stays contained but whose output-side join
+	// (filepath.Join(outputDir, path)) would escape OUTPUT_DIR. The request
+	// must be rejected before any split is enqueued.
+	var captured *split.Options
+	splitFn := func(ctx context.Context, opts split.Options) ([]string, error) {
+		captured = &opts
+		return []string{"01 - First.flac"}, nil
+	}
+	s, inputDir, _ := testServer(t, splitFn)
+	writeFile(t, filepath.Join(inputDir, "Album", "album.cue"), twoTrackCue)
+	writeFile(t, filepath.Join(inputDir, "Album", "album.wav"), string(buildWavHeader(44100, 88200, 88200)))
+
+	// "../<inputBase>/Album": Join(inputDir, ..) climbs to inputDir's parent
+	// then back into inputDir/Album (still contained), while Join(outputDir,
+	// ..) escapes outputDir into a sibling path.
+	traversal := "../" + filepath.Base(inputDir) + "/Album"
+	body, _ := json.Marshal(pathRequest{Path: traversal, CueFile: "album.cue"})
+	rr := httptest.NewRecorder()
+	s.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/api/split", bytes.NewReader(body)))
+
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403", rr.Code)
+	}
+	if captured != nil {
+		t.Fatalf("split was enqueued with OutDir %q, want no split for a traversal path", captured.OutDir)
+	}
+}
+
 func TestHandleSplit_MissingCue(t *testing.T) {
 	s, _, _ := testServer(t, nil)
 

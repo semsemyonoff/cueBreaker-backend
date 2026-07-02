@@ -132,7 +132,10 @@ func fileReferences(content string) []string {
 // HasSourceFLAC reports whether cuePath is a single-file CUE whose FILE
 // reference points at an existing FLAC/WAV in dir (i.e. an unsplit album).
 // A multi-file CUE, a missing/unreadable CUE, or a missing source file all
-// report false.
+// report false. The referenced file must also stay under dir after resolving
+// symlinks — the same containment SourceFLAC enforces — so scan eligibility
+// never lists an album whose FILE "../x.flac" (or a symlinked source) later
+// preview/split resolution would reject.
 func HasSourceFLAC(cuePath, dir string) bool {
 	content, err := ReadCUE(cuePath)
 	if err != nil {
@@ -150,8 +153,12 @@ func HasSourceFLAC(cuePath, dir string) bool {
 		return false
 	}
 
-	info, err := os.Stat(filepath.Join(dir, ref))
-	return err == nil && !info.IsDir()
+	realDir, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return false
+	}
+	_, ok := containedFile(dir, realDir, ref)
+	return ok
 }
 
 // SourceFLAC resolves the source audio file for album within dir: the

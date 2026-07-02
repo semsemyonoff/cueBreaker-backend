@@ -198,6 +198,37 @@ INDEX 01 00:00:00
 			t.Error("HasSourceFLAC() = true, want false when the CUE cannot be read")
 		}
 	})
+
+	t.Run("FILE reference escapes dir via ..", func(t *testing.T) {
+		parent := t.TempDir()
+		writeFile(t, filepath.Join(parent, "outside.flac"), "")
+		dir := filepath.Join(parent, "album")
+		cuePath := filepath.Join(dir, "album.cue")
+		writeFile(t, cuePath, `FILE "../outside.flac" WAVE
+TRACK 01 AUDIO
+INDEX 01 00:00:00
+`)
+		if HasSourceFLAC(cuePath, dir) {
+			t.Error("HasSourceFLAC() = true, want false for a FILE reference that escapes dir via ..")
+		}
+	})
+
+	t.Run("symlinked source escapes dir", func(t *testing.T) {
+		outside := t.TempDir()
+		writeFile(t, filepath.Join(outside, "real.flac"), "")
+		dir := t.TempDir()
+		if err := os.Symlink(filepath.Join(outside, "real.flac"), filepath.Join(dir, "album.flac")); err != nil {
+			t.Skipf("symlink not supported: %v", err)
+		}
+		cuePath := filepath.Join(dir, "album.cue")
+		writeFile(t, cuePath, `FILE "album.flac" WAVE
+TRACK 01 AUDIO
+INDEX 01 00:00:00
+`)
+		if HasSourceFLAC(cuePath, dir) {
+			t.Error("HasSourceFLAC() = true, want false for a symlink that escapes dir")
+		}
+	})
 }
 
 func TestSourceFLAC(t *testing.T) {

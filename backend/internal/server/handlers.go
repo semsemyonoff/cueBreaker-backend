@@ -72,7 +72,12 @@ func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	absDir := filepath.Join(s.cfg.InputDir, req.Path)
+	relPath, ok := s.scanRelPath(w, req.Path)
+	if !ok {
+		return
+	}
+
+	absDir := filepath.Join(s.cfg.InputDir, relPath)
 	cuePath := filepath.Join(absDir, req.CueFile)
 
 	if !s.cueFileContained(w, cuePath) {
@@ -99,7 +104,7 @@ func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 		coverName = filepath.Base(coverPath)
 	}
 
-	done, outputTracks := scan.CheckOutputStatus(s.cfg.OutputDir, req.Path, cuePath)
+	done, outputTracks := scan.CheckOutputStatus(s.cfg.OutputDir, relPath, cuePath)
 
 	writeJSON(w, http.StatusOK, previewResponse{
 		Album:        album,
@@ -135,18 +140,23 @@ func (s *Server) handleSplit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	absDir := filepath.Join(s.cfg.InputDir, req.Path)
+	relPath, ok := s.scanRelPath(w, req.Path)
+	if !ok {
+		return
+	}
+
+	absDir := filepath.Join(s.cfg.InputDir, relPath)
 	cuePath := filepath.Join(absDir, req.CueFile)
 
 	if !s.cueFileContained(w, cuePath) {
 		return
 	}
 
-	jobID := job.JobID(req.Path, req.CueFile)
+	jobID := job.JobID(relPath, req.CueFile)
 	opts := split.Options{
 		CuePath:   cuePath,
 		SourceDir: absDir,
-		OutDir:    filepath.Join(s.cfg.OutputDir, req.Path),
+		OutDir:    filepath.Join(s.cfg.OutputDir, relPath),
 	}
 
 	if !s.jobs.Enqueue(jobID, opts) {
@@ -196,6 +206,25 @@ func (s *Server) decodePathRequest(w http.ResponseWriter, r *http.Request) (path
 		return pathRequest{}, false
 	}
 	return req, true
+}
+
+// scanRelPath validates p as a safe scan-relative directory path and returns
+// its cleaned form, writing a 403 and reporting ok=false otherwise. The same
+// path is joined onto BOTH the input and output roots, so cueFileContained's
+// realpath check on the input side is not enough on its own: an unsanitized
+// ".." that still resolves under INPUT_DIR (e.g. "../input/Album") would
+// escape OUTPUT_DIR when joined there, redirecting split output outside the
+// output root. Rejecting absolute paths and any ".." that escapes the root
+// keeps the two joins in the same relative subtree.
+func (s *Server) scanRelPath(w http.ResponseWriter, p string) (string, bool) {
+	if !filepath.IsAbs(p) {
+		clean := filepath.Clean(p)
+		if clean != ".." && !strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+			return clean, true
+		}
+	}
+	s.writeError(w, http.StatusForbidden, "Invalid path")
+	return "", false
 }
 
 // cueFileContained checks that cuePath names an existing file whose real

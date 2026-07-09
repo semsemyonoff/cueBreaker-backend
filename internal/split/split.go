@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"syscall"
 	"time"
 
 	"git.horn/cueBreaker/backend/internal/cue"
@@ -122,6 +123,19 @@ func runShnsplit(ctx context.Context, utf8Cue, sourcePath, outDir string, trackC
 		"-d", outDir,
 		sourcePath,
 	)
+	// Run shnsplit in its own process group and, on cancellation, SIGKILL the
+	// whole group. shnsplit spawns encoder children; the default per-process
+	// kill would orphan them, and an orphan that inherited the stderr pipe keeps
+	// it open — the synchronous read below would then block until it exits.
+	// WaitDelay is a backstop that force-closes the pipes shortly after.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		if cmd.Process == nil {
+			return nil
+		}
+		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	}
+	cmd.WaitDelay = time.Second
 
 	stderr, err := cmd.StderrPipe()
 	if err != nil {

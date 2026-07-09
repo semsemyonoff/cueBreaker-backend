@@ -47,12 +47,4 @@ Also exposed in the DWE workspace as `dwe cmd backend.{run,test,lint}`.
 - Env vars: `CUEBREAKER_INPUT_DIR` (`/input`), `CUEBREAKER_OUTPUT_DIR` (`/output`),
   `CUEBREAKER_PORT` (`5000`). Version via `-ldflags "-X main.version=$APP_VERSION"`, at `GET /api/version`.
 
-## Known issue
-
-`internal/split.TestRun_ContextCanceledKillsShnsplit` currently fails: when `shnsplit` is
-cancelled mid-run, a grandchild process can inherit the stderr pipe and hold it open, so
-`cmd.Wait()` blocks. Fix: set `cmd.WaitDelay` (and/or run shnsplit in its own process group and
-kill the group) in `internal/split.runShnsplit`. Pre-existing; carried over verbatim from the
-monorepo.
-
 > `CLAUDE.md` is a symlink to this file. Edit `AGENTS.md`.

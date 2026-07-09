@@ -1,44 +1,40 @@
-# Docker image name and tag
-CUEBREAKER_IMAGE ?= semsemyonoff/cuebreaker
-CUEBREAKER_TAG ?= latest
-# Target platforms for multi-arch build
-CUEBREAKER_PLATFORMS ?= linux/amd64,linux/arm64
+# cueBreaker backend — local dev tasks.
+#
+# The single binary embeds the built SPA from web/dist (a placeholder in this
+# repo; the real SPA is baked in at image-build time by the workspace repo).
+# These tasks are also exposed in the DWE workspace as `dwe cmd backend.*`.
 
 APP_VERSION ?= dev
+BIN         ?= cuebreaker
 
-.PHONY: frontend-build build dev test lint docker-build
+.PHONY: build run test test-race cover vet lint fmt tidy clean
 
-# Build the SPA and copy it into backend/web/dist (embedded by the Go build)
-frontend-build:
-	npm --prefix frontend ci
-	npm --prefix frontend run build
-	rm -rf backend/web/dist
-	mkdir -p backend/web/dist
-	cp -r frontend/dist/. backend/web/dist/
-	touch backend/web/dist/.gitkeep
+build: ## Build the cuebreaker binary (SPA embedded from web/dist)
+	go build -ldflags "-X main.version=$(APP_VERSION)" -o $(BIN) ./cmd/cuebreaker
 
-# Build the single cuebreaker binary with the SPA embedded
-build: frontend-build
-	cd backend && go build -ldflags "-X main.version=$(APP_VERSION)" -o cuebreaker ./cmd/cuebreaker
+run: ## Run the server (go run)
+	go run ./cmd/cuebreaker
 
-# Run the Vite dev server (proxies /api to a locally running backend) and the Go backend together
-dev:
-	npm --prefix frontend run dev & \
-	cd backend && go run ./cmd/cuebreaker; \
-	wait
+test: ## Run all tests
+	go test ./...
 
-test:
-	cd backend && go test ./...
-	npm --prefix frontend run test
+test-race: ## Run all tests with the race detector
+	go test -race ./...
 
-lint:
-	cd backend && go vet ./...
-	npm --prefix frontend run lint
+cover: ## Run tests with coverage summary
+	go test -cover ./...
 
-# Build and push a multi-arch image to $(CUEBREAKER_IMAGE):$(CUEBREAKER_TAG)
-docker-build:
-	docker buildx build \
-		--platform $(CUEBREAKER_PLATFORMS) \
-		--build-arg APP_VERSION=$(APP_VERSION) \
-		--tag $(CUEBREAKER_IMAGE):$(CUEBREAKER_TAG) \
-		--push .
+vet: ## go vet
+	go vet ./...
+
+lint: ## golangci-lint (install: https://golangci-lint.run)
+	golangci-lint run
+
+fmt: ## Format the code (golangci-lint formatters: gofmt + goimports)
+	golangci-lint fmt
+
+tidy: ## Tidy go.mod / go.sum
+	go mod tidy
+
+clean: ## Remove build artifacts
+	rm -f $(BIN)

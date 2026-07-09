@@ -1,0 +1,39 @@
+# golangci-lint v2 configuration for the cueBreaker backend.
+# Run: golangci-lint run   (formatters: golangci-lint fmt)
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  # The standard set (errcheck, govet, ineffassign, staticcheck, unused) plus a
+  # few high-signal extras.
+  default: standard
+  enable:
+    - bodyclose # unclosed HTTP response bodies
+    - errorlint # correct errors.Is/As and %w wrapping
+    - misspell # common English typos in comments/strings
+    - unconvert # redundant type conversions
+    - revive # golint-style style checks (mild)
+  settings:
+    revive:
+      rules:
+        - name: exported
+          disabled: true # doc-comment style is enforced by convention, not CI
+  exclusions:
+    generated: lax
+    rules:
+      # Test helpers shell out and intentionally ignore some errors.
+      - path: _test\.go
+        linters:
+          - errcheck
+          - bodyclose
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - git.horn/cueBreaker/backend

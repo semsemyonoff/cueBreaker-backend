@@ -1,11 +1,13 @@
 .DS_Store
 .ralphex
 
-# node
-node_modules/
-frontend/dist/
-frontend/*.tsbuildinfo
+# build artifacts
+/cuebreaker
+*.test
+*.out
 
-# go
-backend/cuebreaker
-backend/*.test
+# the embedded SPA — the real bundle is baked in at image-build time; keep only
+# the placeholder so //go:embed all:dist still builds.
+web/dist/*
+!web/dist/.gitkeep
+!web/dist/index.html

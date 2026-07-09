@@ -1,135 +1,72 @@
-# cueBreaker
+# cueBreaker — backend
 
-A "Waveform & Cuts" web app for splitting single-file FLAC albums using CUE sheets. Single Go
-binary with an embedded React SPA, built on Alpine Linux with shntool and cuetools.
+The Go backend for [cueBreaker](https://git.horn/cueBreaker), a "Waveform & Cuts" tool
+for splitting single-file FLAC albums using CUE sheets. A single static binary that
+serves a JSON API under `/api/*` and the embedded SPA on `/`.
 
-## Features
+This repo is **the backend only**. The SPA lives in
+[`cueBreaker/frontend`](https://git.horn/cueBreaker/frontend); it is built and copied into
+`web/dist/` (embedded via `//go:embed`) when the combined production image is built. The
+image, and the local dev environment, are assembled by the workspace repo
+([`cueBreaker/workspace`](https://git.horn/cueBreaker/workspace)) — the same three-repo
+pattern used across the sibling `beetDeck` / `AlbFetcharr` products.
 
-- Scans a directory tree for unsplit FLAC+CUE pairs (skips already-split per-track CUEs)
-- Auto-detects CUE file encoding (UTF-8, CP1251, Shift-JIS, and others)
-- Hierarchical tree view of discovered albums with search
-- Album view with a waveform whose cut-lines sit at the real track boundaries, cover art
-  preview, track listing, and tag info
-- Splits FLAC and writes Vorbis tags (artist, title, album, genre, date, track number) via
-  `cueprint` + `metaflac`
-- Copies cover art (cover/folder/front images) to the output directory
-- Live split progress (waveform fill + per-track status), one split at a time
-- Marks already-split albums with a checkmark
+## Layout
 
-## Quick Start
-
-### Docker Compose
-
-```yaml
-services:
-  cuebreaker:
-    image: semsemyonoff/cuebreaker
-    container_name: cuebreaker
-    user: "1000:1000"
-    environment:
-      - TZ=Europe/Moscow
-      - CUEBREAKER_INPUT_DIR=/input
-      - CUEBREAKER_OUTPUT_DIR=/output
-    volumes:
-      - /path/to/your/downloads:/input:ro
-      - /path/to/split/output:/output
-    ports:
-      - "5000:5000"
-    restart: unless-stopped
 ```
-
-```bash
-docker compose up -d
+cmd/cuebreaker/    entrypoint: load config, build queue + HTTP server, serve SPA
+internal/
+  config/          env-based config (CUEBREAKER_*)
+  cue/             encoding-detecting CUE reader/parser; FLAC/WAV duration
+  scan/            walk INPUT_DIR for unsplit FLAC+CUE pairs; cover discovery
+  split/           orchestrate cuebreakpoints → shnsplit → tagging → cover copy
+  job/             serialized split worker + in-memory job registry
+  server/          net/http mux, JSON handlers, path containment, SPA fallback
+web/               //go:embed of the built SPA (web/dist placeholder in this repo)
+testdata/          sample CUE files (encodings) + a tiny FLAC
 ```
-
-Open `http://localhost:5000` in your browser.
-
-### Docker Run
-
-```bash
-docker run -d \
-  --name cuebreaker \
-  -p 5000:5000 \
-  -e TZ=Europe/Moscow \
-  -v /path/to/your/downloads:/input:ro \
-  -v /path/to/split/output:/output \
-  cuebreaker
-```
-
-## Configuration
-
-| Environment Variable     | Default   | Description                          |
-|--------------------------|-----------|--------------------------------------|
-| `CUEBREAKER_INPUT_DIR`   | `/input`  | Directory to scan for FLAC+CUE pairs |
-| `CUEBREAKER_OUTPUT_DIR`  | `/output` | Directory for split results           |
-| `CUEBREAKER_PORT`        | `5000`    | HTTP port the server listens on       |
-| `TZ`                     | `UTC`     | Timezone                              |
-
-## How It Works
-
-1. **Scan** — recursively walks the input directory looking for `.cue` files that reference a single existing `.flac`/`.wav` file (whole album). Directories with per-track CUE sheets are ignored.
-2. **Preview** — parses the CUE file, extracts album metadata, track listing, and total duration; detects encoding automatically.
-3. **Split** — converts the CUE to UTF-8, then runs `shnsplit` to split the FLAC into individual tracks using breakpoints from `cuebreakpoints`.
-4. **Tag** — extracts tags with `cueprint` and writes them to each track via `metaflac` (TITLE, ARTIST, ALBUM, ALBUMARTIST, GENRE, DATE, TRACKNUMBER, TRACKTOTAL).
-5. **Finalize** — removes pregap (track 00), copies cover art, reports results.
-
-Output files are placed in `OUTPUT_DIR/<same-relative-path-as-source>/`. Splits are serialized —
-one job runs at a time; further requests for the same album are rejected while it's in progress.
-
-## Volumes
-
-- **Input** (`/input`) — mount read-only. The source FLAC and CUE files are never modified.
-- **Output** (`/output`) — mount read-write. Split tracks and cover art are written here.
 
 ## Development
 
-This is a monorepo: a Go backend under `backend/` and a React + Vite + TypeScript SPA under
-`frontend/`. The backend embeds the built SPA via `//go:embed` and serves it from `/`, with the
-API under `/api/*`.
-
 ```bash
-make build   # npm ci + build the SPA into backend/web/dist, then go build the single binary
-make dev     # run the Vite dev server (proxies /api) alongside `go run` for the backend
-make test    # go test ./... + npm run test
-make lint    # go vet ./... + npm run lint
+make run          # go run ./cmd/cuebreaker  (API on :5000)
+make build        # single binary with the SPA embedded (APP_VERSION=x.y.z)
+make test         # go test ./...
+make test-race    # go test -race ./...
+make lint         # golangci-lint run
+make fmt          # golangci-lint fmt  (gofmt + goimports)
+make vet          # go vet ./...
 ```
-
-`make build` produces `backend/cuebreaker`, a single binary serving the full app on
-`CUEBREAKER_PORT` (default `5000`).
 
 ### Tool dependencies
 
-The backend orchestrates these external tools via `os/exec` (installed in the Docker image,
-required on your `PATH` for local `make dev`/`make build`):
+The backend shells out to these via `os/exec` (installed in the production image;
+required on your `PATH` for a fully working local `make run`):
 
 - **shntool** 3.0.10 (`shnsplit`)
 - **cuetools** (`cuebreakpoints`, `cueprint`)
 - **FLAC** (`metaflac`)
 
-### Docker image
+Tests that touch these tools parse captured sample output and gate real invocations
+behind tool-presence checks, so `go test ./...` runs without them installed.
 
-`docker build .` runs a multi-stage build: Node builds the SPA, Go builds the backend with the
-SPA embedded, and the runtime stage is Alpine with `shntool`/`cuetools`/`flac` installed —
-mirroring the tool stack above. `make docker-build` builds and pushes a multi-arch image via
-`docker buildx` to `$CUEBREAKER_IMAGE:$CUEBREAKER_TAG` (defaults `semsemyonoff/cuebreaker:latest`)
-for `$CUEBREAKER_PLATFORMS` (default `linux/amd64,linux/arm64`).
+## Configuration
 
-The build version is injected at build time via `-ldflags "-X main.version=$APP_VERSION"`
-(`make build APP_VERSION=1.2.3`, or Docker `--build-arg APP_VERSION=1.2.3`; default `dev`) and
-surfaced at runtime by `GET /api/version` → `{"version": "..."}`.
+| Environment Variable    | Default   | Description                          |
+|-------------------------|-----------|--------------------------------------|
+| `CUEBREAKER_INPUT_DIR`  | `/input`  | Directory to scan for FLAC+CUE pairs |
+| `CUEBREAKER_OUTPUT_DIR` | `/output` | Directory for split results          |
+| `CUEBREAKER_PORT`       | `5000`    | HTTP port the server listens on      |
 
-### Future: repo split
+The build version is injected via `-ldflags "-X main.version=$APP_VERSION"` (default
+`dev`) and surfaced at `GET /api/version` → `{"version": "..."}`.
 
-The `backend/`/`frontend/` split in this repo is deliberately structured so that a later
-extraction into separate `backend`, `frontend`, and `deploy` repos (submodules + multi-stage
-Dockerfile, mirroring the `AlbFetcharr`/`beetDeck` pattern) is a move, not a refactor. That split
-is explicitly out of scope for now.
+## Full stack
 
-## Tech Stack
+To run the backend together with the Vite dev server (hot reload on both), use the
+workspace repo:
 
-- **Go** backend, single static binary
-- **React** + **Vite** + **TypeScript** SPA
-- **shntool** 3.0.10
-- **cuetools** (cuebreakpoints, cueprint)
-- **FLAC** (metaflac)
-- **Alpine Linux** base image
+```bash
+git clone ssh://git@git.horn:2222/cueBreaker/workspace.git
+cd workspace && dwe deploy run
+```

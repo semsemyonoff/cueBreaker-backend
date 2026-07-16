@@ -10,6 +10,7 @@ import (
 
 	"git.horn/cueBreaker/backend/internal/config"
 	"git.horn/cueBreaker/backend/internal/job"
+	"git.horn/cueBreaker/backend/internal/server/openapi"
 )
 
 // Server implements http.Handler for cueBreaker's JSON API.
@@ -57,14 +58,35 @@ func New(cfg config.Config, jobs *job.Manager, version string, logger *slog.Logg
 	return s, nil
 }
 
+// apiRoute pairs an http.ServeMux pattern with the handler serving it.
+type apiRoute struct {
+	pattern string
+	handler http.HandlerFunc
+}
+
+// apiRoutes is the API surface: routes() registers exactly this list, and
+// openapi_test.go checks it against internal/server/openapi's hand-written
+// spec in both directions. Adding a route here without documenting it (or
+// vice versa) fails that test.
+func (s *Server) apiRoutes() []apiRoute {
+	return []apiRoute{
+		{"GET /api/scan", s.handleScan},
+		{"GET /api/search", s.handleSearch},
+		{"POST /api/preview", s.handlePreview},
+		{"GET /api/cover/{path...}", s.handleCover},
+		{"POST /api/split", s.handleSplit},
+		{"GET /api/status/{job_id...}", s.handleStatus},
+		{"GET /api/version", s.handleVersion},
+		{"GET " + openapi.SpecURL, s.handleOpenAPISpec},
+		{"GET /api/docs", s.handleDocs},
+		{"GET " + openapi.BundleURL, s.handleScalarBundle},
+	}
+}
+
 func (s *Server) routes() {
-	s.mux.HandleFunc("GET /api/scan", s.handleScan)
-	s.mux.HandleFunc("GET /api/search", s.handleSearch)
-	s.mux.HandleFunc("POST /api/preview", s.handlePreview)
-	s.mux.HandleFunc("GET /api/cover/{path...}", s.handleCover)
-	s.mux.HandleFunc("POST /api/split", s.handleSplit)
-	s.mux.HandleFunc("GET /api/status/{job_id...}", s.handleStatus)
-	s.mux.HandleFunc("GET /api/version", s.handleVersion)
+	for _, route := range s.apiRoutes() {
+		s.mux.HandleFunc(route.pattern, route.handler)
+	}
 	s.mux.Handle("/", s.static)
 }
 

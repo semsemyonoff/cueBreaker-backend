@@ -1,0 +1,421 @@
+openapi: 3.1.0
+info:
+  title: cueBreaker API
+  description: |
+    JSON API for splitting single-file FLAC albums using their CUE sheets.
+
+    Every path below is served by the cueBreaker backend alongside the embedded
+    SPA. This spec is hand-written and kept honest by a drift test that compares
+    it against the routes the server actually registers.
+  version: "1"
+servers:
+  - url: /
+    description: The cueBreaker backend itself
+
+tags:
+  - name: Library
+    description: Discovering the CUE/FLAC album pairs under the input directory.
+  - name: Splitting
+    description: Enqueuing splits and following their progress.
+  - name: Meta
+    description: Version and API documentation.
+
+paths:
+  /api/scan:
+    get:
+      tags: [Library]
+      summary: List every unsplit album
+      description: |
+        Walks the input directory and returns every directory holding at least
+        one CUE sheet that references an existing single source FLAC/WAV,
+        sorted by relative path.
+      operationId: scan
+      responses:
+        "200":
+          description: The album pairs found (empty array if the library is empty).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Pair"
+        "500":
+          $ref: "#/components/responses/Error"
+
+  /api/search:
+    get:
+      tags: [Library]
+      summary: Search the album pairs
+      description: |
+        Scans, then filters the pairs by `q`. An empty or absent `q` returns an
+        empty array rather than the whole library.
+      operationId: search
+      parameters:
+        - name: q
+          in: query
+          required: false
+          description: Free-text query matched against the pair's path and file names.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The matching album pairs.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Pair"
+        "500":
+          $ref: "#/components/responses/Error"
+
+  /api/preview:
+    post:
+      tags: [Library]
+      summary: Parse a CUE sheet and describe its album
+      description: |
+        Parses the named CUE sheet and returns its album metadata and tracks,
+        plus the cover, split-status and source-duration data the waveform
+        needs.
+      operationId: preview
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PathRequest"
+      responses:
+        "200":
+          description: The parsed album.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Preview"
+        "400":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
+
+  /api/cover/{path}:
+    get:
+      tags: [Library]
+      summary: Serve an album's cover image
+      operationId: cover
+      parameters:
+        - name: path
+          in: path
+          required: true
+          description: |
+            The album's scan-relative directory path. May contain slashes.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The cover image bytes.
+          content:
+            image/*:
+              schema:
+                type: string
+                format: binary
+        "403":
+          description: The path escapes the input directory. Empty body.
+        "404":
+          description: The directory holds no cover image. Empty body.
+
+  /api/split:
+    post:
+      tags: [Splitting]
+      summary: Enqueue a split
+      description: |
+        Enqueues a split of the CUE sheet's source file. The job runs in the
+        background; poll `/api/status/{job_id}` with the returned id. Enqueuing
+        a job that is already queued or running is a conflict, not a no-op.
+      operationId: split
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PathRequest"
+      responses:
+        "202":
+          description: The split was enqueued.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SplitAccepted"
+        "400":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          description: A split for this album and CUE sheet is already in progress.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SplitConflict"
+
+  /api/status/{job_id}:
+    get:
+      tags: [Splitting]
+      summary: Read a job's current state
+      operationId: status
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          description: The id returned by `/api/split`. May contain slashes.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The job's status snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Status"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /api/version:
+    get:
+      tags: [Meta]
+      summary: Report the backend's version
+      operationId: version
+      responses:
+        "200":
+          description: The running backend's version string.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Version"
+
+  /api/openapi.yaml:
+    get:
+      tags: [Meta]
+      summary: Serve this specification
+      operationId: openapiSpec
+      responses:
+        "200":
+          description: This document.
+          content:
+            application/yaml:
+              schema:
+                type: string
+
+  /api/docs:
+    get:
+      tags: [Meta]
+      summary: Serve the Scalar API reference
+      description: An HTML page rendering this spec with Scalar.
+      operationId: docs
+      responses:
+        "200":
+          description: The reference page.
+          content:
+            text/html:
+              schema:
+                type: string
+
+  /api/docs/scalar.js:
+    get:
+      tags: [Meta]
+      summary: Serve the vendored Scalar bundle
+      description: |
+        The bundle `/api/docs` loads. Vendored rather than pulled from a CDN so
+        the reference renders on a network that can only reach this stack.
+      operationId: scalarBundle
+      responses:
+        "200":
+          description: The Scalar standalone bundle.
+          content:
+            text/javascript:
+              schema:
+                type: string
+
+components:
+  schemas:
+    Pair:
+      type: object
+      description: A directory holding a CUE sheet that references an unsplit source file.
+      required: [path, abs_path, cue_files, flac_files, split_done, output_tracks]
+      properties:
+        path:
+          type: string
+          description: The directory's path relative to the input root.
+        abs_path:
+          type: string
+          description: The directory's absolute path inside the backend container.
+        cue_files:
+          type: array
+          items:
+            type: string
+          description: The CUE sheet file names in the directory.
+        flac_files:
+          type: array
+          items:
+            type: string
+          description: The source FLAC/WAV file names in the directory.
+        split_done:
+          type: boolean
+          description: Whether a matching split already exists in the output root.
+        output_tracks:
+          type: integer
+          description: How many tracks that existing split produced.
+
+    Track:
+      type: object
+      description: A single CUE track entry.
+      required: [number, title, performer, index, start_seconds]
+      properties:
+        number:
+          type: integer
+        title:
+          type: string
+        performer:
+          type: string
+        index:
+          type: string
+          description: The raw CUE INDEX timecode, `mm:ss:ff`.
+        start_seconds:
+          type: number
+          format: double
+          description: The track's start offset, in seconds.
+
+    Album:
+      type: object
+      description: A parsed CUE sheet's album metadata and tracks, in CUE order.
+      required: [performer, title, file, genre, date, tracks]
+      properties:
+        performer:
+          type: string
+        title:
+          type: string
+        file:
+          type: string
+          description: The source file named by the CUE sheet's FILE line.
+        genre:
+          type: string
+        date:
+          type: string
+        tracks:
+          type: array
+          items:
+            $ref: "#/components/schemas/Track"
+
+    Preview:
+      allOf:
+        - $ref: "#/components/schemas/Album"
+        - type: object
+          required: [has_cover, split_done, output_tracks, total_seconds]
+          properties:
+            has_cover:
+              type: boolean
+            cover_name:
+              type: string
+              description: The cover's file name. Omitted when there is no cover.
+            split_done:
+              type: boolean
+            output_tracks:
+              type: integer
+            total_seconds:
+              type: number
+              format: double
+              description: |
+                The source file's duration. `0` when it could not be read.
+
+    PathRequest:
+      type: object
+      description: The shared body of the preview and split endpoints.
+      required: [path, cue_file]
+      properties:
+        path:
+          type: string
+          description: |
+            The album directory's path, relative to the input root. Absolute
+            paths and any `..` that escapes the root are rejected with a 403.
+        cue_file:
+          type: string
+          description: The CUE sheet's file name within that directory.
+
+    Status:
+      type: object
+      description: A job's current state.
+      required:
+        [
+          status,
+          message,
+          result_files,
+          progress_current,
+          progress_total,
+          progress_detail,
+        ]
+      properties:
+        status:
+          $ref: "#/components/schemas/JobStatus"
+        message:
+          type: string
+          description: A human-readable note; carries the reason when status is `error`.
+        result_files:
+          type: array
+          items:
+            type: string
+          description: The split's output files. Empty until the job is done.
+        progress_current:
+          type: integer
+        progress_total:
+          type: integer
+        progress_detail:
+          type: string
+
+    JobStatus:
+      type: string
+      description: Where a job is in the split pipeline.
+      enum: [queued, splitting, tagging, done, error]
+
+    SplitAccepted:
+      type: object
+      required: [job_id, status]
+      properties:
+        job_id:
+          type: string
+        status:
+          type: string
+          enum: [queued]
+
+    SplitConflict:
+      type: object
+      required: [error, job_id]
+      properties:
+        error:
+          type: string
+        job_id:
+          type: string
+
+    Version:
+      type: object
+      required: [version]
+      properties:
+        version:
+          type: string
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+  responses:
+    Error:
+      description: The request failed; the body carries the reason.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"

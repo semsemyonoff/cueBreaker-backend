@@ -16,7 +16,10 @@ FLAC+CUE album splitter, Go backend. A single static binary serving a JSON API u
   `metaflac`) → pregap removal → cover copy.
 - `internal/job` — serialized worker (one split at a time) + in-memory job registry.
 - `internal/server` — `net/http` mux (Go 1.22+ patterns), JSON handlers, realpath containment,
-  `embed.FS` SPA serving with fallback, `slog`.
+  `embed.FS` SPA serving with fallback, `slog`. Routes are declared in one `apiRoutes()` table
+  that `routes()` iterates — add a route there, not with a stray `mux.Handle`.
+- `internal/server/openapi` — hand-written `openapi.yaml` + a vendored Scalar bundle, both
+  `//go:embed`ed; served at `GET /api/openapi.yaml` and `GET /api/docs`.
 - `web/` — `//go:embed all:dist`. `web/dist/` holds only a placeholder here; the real SPA is
   baked in at image-build time by the workspace repo.
 
@@ -42,6 +45,10 @@ Also exposed in the DWE workspace as `dwe cmd backend.{run,test,lint}`.
 - Lint + format via **golangci-lint** (v2; config in `.golangci.yml`): the standard set plus
   bodyclose/errorlint/misspell/unconvert/revive; `golangci-lint fmt` owns formatting. Keep
   `golangci-lint run` clean before committing.
+- The OpenAPI spec is hand-written, not generated. `openapi_test.go` asserts in both directions
+  that every path in `apiRoutes()` is documented and every documented path is registered, so a new
+  or renamed route fails the suite until the spec matches. Update `openapi.yaml` in the same commit
+  as the route; the response shapes must mirror the Go JSON tags exactly.
 - Keep the module building/testing green (`go build ./...` + `go test ./...`) before moving on.
 - External tools: `shnsplit` (shntool), `cuebreakpoints`/`cueprint` (cuetools), `metaflac` (flac).
 - Env vars: `CUEBREAKER_INPUT_DIR` (`/input`), `CUEBREAKER_OUTPUT_DIR` (`/output`),

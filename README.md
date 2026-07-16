@@ -22,6 +22,7 @@ internal/
   split/           orchestrate cuebreakpoints → shnsplit → tagging → cover copy
   job/             serialized split worker + in-memory job registry
   server/          net/http mux, JSON handlers, path containment, SPA fallback
+    openapi/       embedded OpenAPI spec + vendored Scalar bundle (/api/docs)
 web/               //go:embed of the built SPA (web/dist placeholder in this repo)
 testdata/          sample CUE files (encodings) + a tiny FLAC
 ```
@@ -49,6 +50,26 @@ required on your `PATH` for a fully working local `make run`):
 
 Tests that touch these tools parse captured sample output and gate real invocations
 behind tool-presence checks, so `go test ./...` runs without them installed.
+
+## API documentation
+
+The server documents itself. Two routes, both served from the binary with no network access
+required:
+
+| Route               | Serves                                                       |
+|---------------------|--------------------------------------------------------------|
+| `GET /api/docs`     | The [Scalar](https://scalar.com) API reference, rendered from the spec below |
+| `GET /api/openapi.yaml` | The OpenAPI 3.1 spec itself (`application/yaml`)          |
+
+Both are `//go:embed`ed from `internal/server/openapi/`, including the Scalar bundle — it is
+vendored rather than loaded from a CDN so the reference renders on an isolated network. In the
+DWE dev stack the reference is at `http://localhost:5100/api/docs`.
+
+The spec is **hand-written**, so `openapi_test.go` guards it against drift: it reads the same
+`apiRoutes()` table the mux is built from and asserts in both directions that every registered
+path is documented and every documented path is registered. Adding or renaming a route fails
+`go test ./...` until `openapi.yaml` is updated to match — do both in one commit, and keep the
+response schemas mirroring the Go JSON tags.
 
 ## Configuration
 

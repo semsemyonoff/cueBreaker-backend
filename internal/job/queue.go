@@ -32,6 +32,12 @@ type Manager struct {
 	jobs map[string]*State
 
 	queue chan queuedJob
+
+	// Closed when the worker leaves its loop. Shutdown is otherwise
+	// unobservable, which leaves a test with no way to enqueue *after* the
+	// worker is gone: while it still sits in the select, a cancelled ctx and a
+	// ready queue are both live cases and the choice between them is random.
+	workerDone chan struct{}
 }
 
 // NewManager starts a Manager and its worker goroutine. ctx bounds the
@@ -43,10 +49,11 @@ func NewManager(ctx context.Context, splitFn SplitFunc) *Manager {
 		splitFn = split.Run
 	}
 	m := &Manager{
-		splitFn: splitFn,
-		ctx:     ctx,
-		jobs:    make(map[string]*State),
-		queue:   make(chan queuedJob, 64),
+		splitFn:    splitFn,
+		ctx:        ctx,
+		jobs:       make(map[string]*State),
+		queue:      make(chan queuedJob, 64),
+		workerDone: make(chan struct{}),
 	}
 	go m.worker()
 	return m
@@ -81,6 +88,7 @@ func (m *Manager) Get(id string) (State, bool) {
 }
 
 func (m *Manager) worker() {
+	defer close(m.workerDone)
 	for {
 		select {
 		case <-m.ctx.Done():

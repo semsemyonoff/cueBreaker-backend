@@ -33,6 +33,12 @@ func parseSpec(t *testing.T) spec {
 // {job_id} both reduce to the OpenAPI form {path} / {job_id}.
 var wildcard = regexp.MustCompile(`\{([^{}]+?)\.\.\.\}`)
 
+// httpMethods is the set of path-item keys that are operations (OpenAPI 3.1 §4.8.9).
+var httpMethods = map[string]bool{
+	"get": true, "put": true, "post": true, "delete": true,
+	"options": true, "head": true, "patch": true, "trace": true,
+}
+
 // specForm converts a ServeMux pattern ("GET /api/status/{job_id...}") into
 // the method and OpenAPI path ("get", "/api/status/{job_id}") that document
 // it.
@@ -51,6 +57,14 @@ func TestSpecMatchesRoutes(t *testing.T) {
 	documented := map[string]bool{}
 	for path, ops := range doc.Paths {
 		for method := range ops {
+			// A path item's children are not all operations: OpenAPI also allows
+			// summary/description/servers/parameters there. Without this filter,
+			// hoisting a shared `parameters:` up to the path item would fail the
+			// test with "no route registers parameters /api/…" — a spec-shape
+			// change reported as route drift.
+			if !httpMethods[method] {
+				continue
+			}
 			documented[method+" "+path] = true
 		}
 	}

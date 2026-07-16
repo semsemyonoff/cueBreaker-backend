@@ -213,27 +213,37 @@ func TestManager_PanicContained(t *testing.T) {
 // no progress instead of a bogus done.
 func TestManager_WorkerStopsOnContextDone(t *testing.T) {
 	var calls atomic.Int32
+	ran := make(chan struct{}, 1)
 	splitFn := func(ctx context.Context, opts split.Options) ([]string, error) {
 		calls.Add(1)
+		ran <- struct{}{}
 		return nil, nil
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	m := NewManager(ctx, splitFn)
 
+	// Wait for the worker to actually observe ctx.Done() and leave its loop.
+	// A bare sleep races both ways: too short and the worker is still running,
+	// so the assertion below is a real failure; too generous and a worker that
+	// never started makes `calls == 0` pass vacuously.
 	cancel()
-	// Give the worker time to observe ctx.Done() and return before anything
-	// reaches the queue.
-	time.Sleep(50 * time.Millisecond)
+	select {
+	case <-m.workerDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("worker still running 2s after its context was cancelled")
+	}
 
 	if !m.Enqueue("id", split.Options{}) {
 		t.Fatalf("Enqueue() = false, want true — the registry still accepts the job")
 	}
-	time.Sleep(50 * time.Millisecond)
 
-	if got := calls.Load(); got != 0 {
-		t.Fatalf("splitFn called %d times, want 0 after the worker shut down", got)
+	select {
+	case <-ran:
+		t.Fatalf("splitFn called %d times, want 0 after the worker shut down", calls.Load())
+	case <-time.After(100 * time.Millisecond):
 	}
+
 	s, ok := m.Get("id")
 	if !ok || s.Status != StatusQueued {
 		t.Fatalf("Get(id) = %+v, %v; want StatusQueued — the job never ran", s, ok)

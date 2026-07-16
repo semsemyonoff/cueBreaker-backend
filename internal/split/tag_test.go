@@ -238,6 +238,13 @@ func TestFinishSplit_PregapRemovalFails(t *testing.T) {
 		t.Fatalf("chmod outDir: %v", err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(outDir, 0o755) })
+	// Root ignores the write bit, so the removal below would succeed and the
+	// test would fail for the environment rather than the code.
+	probe := filepath.Join(outDir, ".probe")
+	if err := os.WriteFile(probe, nil, 0o644); err == nil {
+		_ = os.Remove(probe)
+		t.Skip("directory mode does not restrict writes (running as root?)")
+	}
 
 	album := cue.Album{Tracks: []cue.Track{{Number: 1}, {Number: 2}}}
 	_, err := finishSplit(context.Background(), utf8Cue, album, sourceDir, outDir, 2, 4, nil)

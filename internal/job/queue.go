@@ -61,7 +61,8 @@ func NewManager(ctx context.Context, splitFn SplitFunc) *Manager {
 
 // Enqueue registers a new split job under id and returns true once it is
 // queued. It returns false without enqueuing anything if a job with this id
-// is already queued, splitting, or tagging.
+// is already queued, splitting, or tagging, if the queue is full, or if the
+// Manager's context is already done.
 func (m *Manager) Enqueue(id string, opts split.Options) bool {
 	m.mu.Lock()
 	if existing, ok := m.jobs[id]; ok && existing.Status.active() {
@@ -71,9 +72,37 @@ func (m *Manager) Enqueue(id string, opts split.Options) bool {
 	m.jobs[id] = &State{Status: StatusQueued}
 	m.mu.Unlock()
 
+	// Checked before the send, not as a second `case` alongside it: with a
+	// cancelled ctx and a ready buffer both live, select picks at random, so
+	// half the post-shutdown enqueues would be accepted.
+	select {
+	case <-m.ctx.Done():
+		m.reject(id)
+		return false
+	default:
+	}
+
 	jobCtx, cancel := context.WithCancel(m.ctx)
-	m.queue <- queuedJob{id: id, opts: opts, ctx: jobCtx, cancel: cancel}
-	return true
+	// The send must never block: one worker drains this queue one split at a
+	// time, so a full buffer would park the caller's HTTP handler for minutes
+	// with no way to cancel it. Refusing is honest; accepting a job that only
+	// a freed slot could ever start is not.
+	select {
+	case m.queue <- queuedJob{id: id, opts: opts, ctx: jobCtx, cancel: cancel}:
+		return true
+	default:
+		cancel()
+		m.reject(id)
+		return false
+	}
+}
+
+// reject drops the StatusQueued placeholder Enqueue optimistically registered,
+// so a refused job leaves no state behind for Get to report.
+func (m *Manager) reject(id string) {
+	m.mu.Lock()
+	delete(m.jobs, id)
+	m.mu.Unlock()
 }
 
 // Get returns a copy of job id's current state, and whether it exists.

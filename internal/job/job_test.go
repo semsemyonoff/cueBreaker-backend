@@ -3,6 +3,7 @@ package job
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -207,10 +208,10 @@ func TestManager_PanicContained(t *testing.T) {
 	waitForStatus(t, m, "after", StatusDone, time.Second)
 }
 
-// The worker stops once the Manager's context is done. A job enqueued after
-// shutdown is registered but never runs — it must sit at queued rather than
-// silently start on a canceled context, so a caller polling its status sees
-// no progress instead of a bogus done.
+// The worker stops once the Manager's context is done. Nothing drains the queue
+// after that, so Enqueue must refuse — parking a job at queued forever would
+// have the handler answer 202 "queued" for work that can never start, and leave
+// a caller polling a status that never moves.
 func TestManager_WorkerStopsOnContextDone(t *testing.T) {
 	var calls atomic.Int32
 	ran := make(chan struct{}, 1)
@@ -234,8 +235,8 @@ func TestManager_WorkerStopsOnContextDone(t *testing.T) {
 		t.Fatal("worker still running 2s after its context was cancelled")
 	}
 
-	if !m.Enqueue("id", split.Options{}) {
-		t.Fatalf("Enqueue() = false, want true — the registry still accepts the job")
+	if m.Enqueue("id", split.Options{}) {
+		t.Fatal("Enqueue() = true after shutdown, want false — nothing drains the queue")
 	}
 
 	select {
@@ -244,9 +245,55 @@ func TestManager_WorkerStopsOnContextDone(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 	}
 
-	s, ok := m.Get("id")
-	if !ok || s.Status != StatusQueued {
-		t.Fatalf("Get(id) = %+v, %v; want StatusQueued — the job never ran", s, ok)
+	if s, ok := m.Get("id"); ok {
+		t.Fatalf("Get(id) = %+v, true; want not found — a refused job leaves no state", s)
+	}
+}
+
+// A full queue must refuse rather than park the caller: the sole worker drains
+// one split at a time, so a blocking send would hang an HTTP handler for
+// minutes with no way to cancel it.
+func TestManager_EnqueueRefusesWhenQueueFull(t *testing.T) {
+	release := make(chan struct{})
+	splitFn := func(ctx context.Context, opts split.Options) ([]string, error) {
+		<-release
+		return nil, nil
+	}
+
+	m := NewManager(t.Context(), splitFn)
+	defer close(release)
+
+	// Park the worker inside splitFn first. Waiting for `splitting` rather than
+	// enqueuing straight through is what makes the count exact: until the worker
+	// has taken a job, every send lands in the buffer and the arithmetic below
+	// is off by one.
+	if !m.Enqueue("occupier", split.Options{}) {
+		t.Fatal("Enqueue(occupier) = false, want true")
+	}
+	waitForStatus(t, m, "occupier", StatusSplitting, 2*time.Second)
+
+	// With the worker busy, the buffer takes exactly cap(m.queue) more.
+	for i := range cap(m.queue) {
+		if !m.Enqueue(fmt.Sprintf("id-%d", i), split.Options{}) {
+			t.Fatalf("Enqueue(id-%d) = false, want true — still within capacity", i)
+		}
+	}
+
+	// Enqueue must not block, so the assertion is only reachable if it returns.
+	done := make(chan bool, 1)
+	go func() { done <- m.Enqueue("overflow", split.Options{}) }()
+
+	select {
+	case accepted := <-done:
+		if accepted {
+			t.Fatal("Enqueue() = true with the queue full, want false")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Enqueue() blocked on a full queue — it must refuse instead")
+	}
+
+	if s, ok := m.Get("overflow"); ok {
+		t.Fatalf("Get(overflow) = %+v, true; want not found — a refused job leaves no state", s)
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -204,6 +205,83 @@ func TestManager_PanicContained(t *testing.T) {
 	}
 	m.Enqueue("after", split.Options{})
 	waitForStatus(t, m, "after", StatusDone, time.Second)
+}
+
+// The worker stops once the Manager's context is done. A job enqueued after
+// shutdown is registered but never runs — it must sit at queued rather than
+// silently start on a canceled context, so a caller polling its status sees
+// no progress instead of a bogus done.
+func TestManager_WorkerStopsOnContextDone(t *testing.T) {
+	var calls atomic.Int32
+	splitFn := func(ctx context.Context, opts split.Options) ([]string, error) {
+		calls.Add(1)
+		return nil, nil
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	m := NewManager(ctx, splitFn)
+
+	cancel()
+	// Give the worker time to observe ctx.Done() and return before anything
+	// reaches the queue.
+	time.Sleep(50 * time.Millisecond)
+
+	if !m.Enqueue("id", split.Options{}) {
+		t.Fatalf("Enqueue() = false, want true — the registry still accepts the job")
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	if got := calls.Load(); got != 0 {
+		t.Fatalf("splitFn called %d times, want 0 after the worker shut down", got)
+	}
+	s, ok := m.Get("id")
+	if !ok || s.Status != StatusQueued {
+		t.Fatalf("Get(id) = %+v, %v; want StatusQueued — the job never ran", s, ok)
+	}
+}
+
+// Re-enqueuing a completed job id re-runs it and replaces its state: an
+// album re-split after a CUE fix must not report the previous run's results.
+func TestManager_Enqueue_CompletedJobRerunsAndReplacesState(t *testing.T) {
+	var runs atomic.Int32
+	splitFn := func(ctx context.Context, opts split.Options) ([]string, error) {
+		if runs.Add(1) == 1 {
+			return []string{"01 - Old.flac"}, nil
+		}
+		return []string{"01 - New.flac", "02 - New.flac"}, nil
+	}
+	m := NewManager(context.Background(), splitFn)
+
+	if !m.Enqueue("id", split.Options{}) {
+		t.Fatalf("Enqueue() = false, want true")
+	}
+	first := waitForStatus(t, m, "id", StatusDone, time.Second)
+	if len(first.ResultFiles) != 1 {
+		t.Fatalf("first run ResultFiles = %v, want 1 entry", first.ResultFiles)
+	}
+
+	// A done job holds no slot, so the same id is accepted again.
+	if !m.Enqueue("id", split.Options{}) {
+		t.Fatalf("Enqueue() after done = false, want true")
+	}
+
+	// Enqueue resets the registry entry to queued, so wait for the second
+	// run's distinct result rather than for StatusDone (which the first run
+	// already satisfies).
+	deadline := time.Now().Add(time.Second)
+	for {
+		s, _ := m.Get("id")
+		if s.Status == StatusDone && len(s.ResultFiles) == 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("job = %+v, want the second run's 2 result files within 1s", s)
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	if got := runs.Load(); got != 2 {
+		t.Fatalf("splitFn ran %d times, want 2", got)
+	}
 }
 
 func TestManager_Get_NotFound(t *testing.T) {

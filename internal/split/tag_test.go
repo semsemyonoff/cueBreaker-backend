@@ -200,6 +200,73 @@ func TestFinishSplit(t *testing.T) {
 	}
 }
 
+// seedFinishSplit writes the standard three-file split output (one pregap +
+// two real tracks) into a fresh outDir, puts no-op cueprint/metaflac fakes
+// on PATH, and returns the source dir, the cue path and the out dir.
+func seedFinishSplit(t *testing.T) (sourceDir, utf8Cue, outDir string) {
+	t.Helper()
+	sourceDir = t.TempDir()
+	outDir = t.TempDir()
+
+	for _, name := range []string{"00 - pregap.flac", "01 - First.flac", "02 - Second.flac"} {
+		if err := os.WriteFile(filepath.Join(outDir, name), []byte("fake"), 0o644); err != nil {
+			t.Fatalf("seed output file %s: %v", name, err)
+		}
+	}
+
+	toolDir := t.TempDir()
+	writeFakeTool(t, toolDir, "cueprint", "echo tagvalue\n")
+	writeFakeTool(t, toolDir, "metaflac", "exit 0\n")
+	t.Setenv("PATH", toolDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	utf8Cue = filepath.Join(sourceDir, "album.cue")
+	if err := os.WriteFile(utf8Cue, []byte("dummy"), 0o644); err != nil {
+		t.Fatalf("write cue: %v", err)
+	}
+	return sourceDir, utf8Cue, outDir
+}
+
+// The pregap file is discarded audio, but a failure to remove it still fails
+// the job: leaving it behind would make the output directory look like it
+// holds an extra track, which is exactly what CheckOutputStatus counts.
+func TestFinishSplit_PregapRemovalFails(t *testing.T) {
+	sourceDir, utf8Cue, outDir := seedFinishSplit(t)
+
+	// A read-only directory permits reading and tagging its files but not
+	// unlinking them. Restored on cleanup so t.TempDir can remove the tree.
+	if err := os.Chmod(outDir, 0o555); err != nil {
+		t.Fatalf("chmod outDir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(outDir, 0o755) })
+
+	album := cue.Album{Tracks: []cue.Track{{Number: 1}, {Number: 2}}}
+	_, err := finishSplit(context.Background(), utf8Cue, album, sourceDir, outDir, 2, 4, nil)
+	if err == nil || !strings.Contains(err.Error(), "remove pregap file") {
+		t.Fatalf("finishSplit() error = %v, want remove-pregap-file failure", err)
+	}
+}
+
+// A cover that is discovered but cannot be copied fails the job rather than
+// completing a split that silently lost its artwork.
+func TestFinishSplit_CoverCopyFails(t *testing.T) {
+	sourceDir, utf8Cue, outDir := seedFinishSplit(t)
+
+	if err := os.WriteFile(filepath.Join(sourceDir, "cover.jpg"), []byte("img"), 0o644); err != nil {
+		t.Fatalf("seed cover: %v", err)
+	}
+	// The copy destination already exists as a directory, so writing the
+	// cover's bytes to it fails.
+	if err := os.Mkdir(filepath.Join(outDir, "cover.jpg"), 0o755); err != nil {
+		t.Fatalf("seed cover destination dir: %v", err)
+	}
+
+	album := cue.Album{Tracks: []cue.Track{{Number: 1}, {Number: 2}}}
+	_, err := finishSplit(context.Background(), utf8Cue, album, sourceDir, outDir, 2, 4, nil)
+	if err == nil || !strings.Contains(err.Error(), "copy cover") {
+		t.Fatalf("finishSplit() error = %v, want copy-cover failure", err)
+	}
+}
+
 func TestFinishSplit_MissingOutDir(t *testing.T) {
 	sourceDir := t.TempDir()
 	_, err := finishSplit(context.Background(), filepath.Join(sourceDir, "album.cue"), cue.Album{}, sourceDir, filepath.Join(sourceDir, "missing"), 0, 0, nil)

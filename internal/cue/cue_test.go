@@ -94,6 +94,90 @@ func TestParseText_GenreDateQuoting(t *testing.T) {
 	}
 }
 
+// TestParseText_DataTrackDropped pins that trackHeaderRe matches only
+// `TRACK n AUDIO`: a data track (MODE1/2352) is silently dropped, and the
+// surviving audio tracks keep the numbers the CUE gave them (so the parse
+// is sparse — 1 and 3 — rather than renumbered 1 and 2). The dropped
+// track's block is folded into the preceding audio track's block, so this
+// also pins that the preceding track keeps its own TITLE/INDEX (firstMatch
+// takes the first match in the block, not the data track's).
+func TestParseText_DataTrackDropped(t *testing.T) {
+	content := `PERFORMER "Album Artist"
+TITLE "Album Title"
+FILE "album.flac" WAVE
+  TRACK 01 AUDIO
+    TITLE "First Track"
+    INDEX 01 00:00:00
+  TRACK 02 MODE1/2352
+    TITLE "Data Track"
+    INDEX 01 03:00:00
+  TRACK 03 AUDIO
+    TITLE "Third Track"
+    INDEX 01 05:00:00
+`
+	album := ParseText(content)
+
+	if len(album.Tracks) != 2 {
+		t.Fatalf("len(Tracks) = %d, want 2 (the MODE1/2352 data track is dropped): %+v", len(album.Tracks), album.Tracks)
+	}
+	if got := []int{album.Tracks[0].Number, album.Tracks[1].Number}; got[0] != 1 || got[1] != 3 {
+		t.Errorf("track numbers = %v, want [1 3] — audio tracks keep their CUE numbering across a dropped data track", got)
+	}
+
+	t1 := album.Tracks[0]
+	if t1.Title != "First Track" || t1.Index != "00:00:00" {
+		t.Errorf("track 1 = %+v, want its own title/index, not the interleaved data track's", t1)
+	}
+	if album.Tracks[1].Title != "Third Track" {
+		t.Errorf("track 3 title = %q, want Third Track", album.Tracks[1].Title)
+	}
+}
+
+// TestParseText_LeadingDataTrack pins the same rule when the data track
+// comes first: its block precedes every audio header, so it belongs to no
+// track at all.
+func TestParseText_LeadingDataTrack(t *testing.T) {
+	content := `FILE "album.flac" WAVE
+  TRACK 01 MODE1/2352
+    TITLE "Data Track"
+    INDEX 01 00:00:00
+  TRACK 02 AUDIO
+    TITLE "Second Track"
+    INDEX 01 05:00:00
+`
+	album := ParseText(content)
+
+	if len(album.Tracks) != 1 {
+		t.Fatalf("len(Tracks) = %d, want 1 (leading data track dropped): %+v", len(album.Tracks), album.Tracks)
+	}
+	if album.Tracks[0].Number != 2 || album.Tracks[0].Title != "Second Track" {
+		t.Errorf("track = %+v, want number=2 title=Second Track", album.Tracks[0])
+	}
+}
+
+// TestParseText_IndexZeroOnly pins that trackIndexRe requires INDEX 01: a
+// track carrying only the INDEX 00 pregap marker parses with an empty
+// Index and a zero StartSeconds rather than adopting the pregap offset.
+func TestParseText_IndexZeroOnly(t *testing.T) {
+	content := `FILE "album.flac" WAVE
+  TRACK 01 AUDIO
+    TITLE "Pregap Only"
+    INDEX 00 01:30:00
+`
+	album := ParseText(content)
+
+	if len(album.Tracks) != 1 {
+		t.Fatalf("len(Tracks) = %d, want 1", len(album.Tracks))
+	}
+	tr := album.Tracks[0]
+	if tr.Index != "" || tr.StartSeconds != 0 {
+		t.Errorf("track index/start = %q/%v, want \"\"/0 — INDEX 00 is not a track start", tr.Index, tr.StartSeconds)
+	}
+	if tr.Title != "Pregap Only" {
+		t.Errorf("track title = %q, want Pregap Only (a missing INDEX 01 must not drop the track)", tr.Title)
+	}
+}
+
 func TestIndexToSeconds(t *testing.T) {
 	tests := []struct {
 		index string
@@ -105,6 +189,18 @@ func TestIndexToSeconds(t *testing.T) {
 		{"03:45:20", 3*60 + 45 + 20.0/75},
 		{"bogus", 0},
 		{"1:2", 0},
+		// Frame counts are not range-checked: 75 frames is one whole second,
+		// so an out-of-range frame simply rolls over rather than erroring.
+		{"00:00:75", 1},
+		{"00:00:150", 2},
+		// Wrong part count in either direction yields 0.
+		{"00:00:00:00", 0},
+		{"00", 0},
+		{"", 0},
+		// Non-numeric parts yield 0, one bad part at a time.
+		{"aa:00:00", 0},
+		{"00:bb:00", 0},
+		{"00:00:cc", 0},
 	}
 	for _, tt := range tests {
 		if got := indexToSeconds(tt.index); got != tt.want {
@@ -189,6 +285,21 @@ INDEX 01 00:00:00
 `)
 		if HasSourceFLAC(cuePath, dir) {
 			t.Error("HasSourceFLAC() = true, want false for a non-flac/wav FILE reference")
+		}
+	})
+
+	t.Run("cue with no FILE reference", func(t *testing.T) {
+		dir := t.TempDir()
+		writeFile(t, filepath.Join(dir, "album.flac"), "")
+		cuePath := filepath.Join(dir, "album.cue")
+		writeFile(t, cuePath, `PERFORMER "Album Artist"
+TRACK 01 AUDIO
+INDEX 01 00:00:00
+`)
+		// fileReferences returns 0 refs, and len(refs) != 1 rejects: an album
+		// is only a split candidate when its CUE names exactly one source.
+		if HasSourceFLAC(cuePath, dir) {
+			t.Error("HasSourceFLAC() = true, want false for a CUE with no FILE reference, even with a FLAC beside it")
 		}
 	})
 

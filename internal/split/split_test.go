@@ -64,6 +64,47 @@ func TestRun_NoSourceFLAC(t *testing.T) {
 	}
 }
 
+// Run makes a UTF-8 temp copy of the CUE before it touches any tool. When
+// the temp file cannot be created the pipeline must abort there — nothing
+// downstream is safe to run against the original, possibly non-UTF-8 CUE.
+func TestRun_MakeUTF8CueFails(t *testing.T) {
+	sourceDir, cuePath, outDir := setupSource(t)
+	// os.CreateTemp resolves its dir through os.TempDir(), which reads
+	// $TMPDIR: point it at a path that does not exist.
+	t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "does_not_exist"))
+
+	_, err := Run(context.Background(), Options{
+		CuePath:   cuePath,
+		SourceDir: sourceDir,
+		OutDir:    outDir,
+	})
+	if err == nil || !strings.Contains(err.Error(), "make utf8 cue") {
+		t.Fatalf("Run() error = %v, want make-utf8-cue failure", err)
+	}
+	if _, statErr := os.Stat(outDir); !os.IsNotExist(statErr) {
+		t.Fatalf("Run() created OutDir despite aborting earlier: %v", statErr)
+	}
+}
+
+// The output directory is created before cuebreakpoints runs, so a
+// non-creatable OutDir must fail the job rather than let shnsplit write
+// somewhere unexpected.
+func TestRun_MkdirOutDirFails(t *testing.T) {
+	sourceDir, cuePath, _ := setupSource(t)
+	// album.flac is a regular file, so nesting a directory under it fails
+	// with ENOTDIR.
+	outDir := filepath.Join(sourceDir, "album.flac", "out")
+
+	_, err := Run(context.Background(), Options{
+		CuePath:   cuePath,
+		SourceDir: sourceDir,
+		OutDir:    outDir,
+	})
+	if err == nil || !strings.Contains(err.Error(), "create output dir") {
+		t.Fatalf("Run() error = %v, want create-output-dir failure", err)
+	}
+}
+
 func TestRun_CuebreakpointsFails(t *testing.T) {
 	sourceDir, cuePath, outDir := setupSource(t)
 	toolDir := t.TempDir()

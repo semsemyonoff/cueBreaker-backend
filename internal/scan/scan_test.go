@@ -1,6 +1,7 @@
 package scan
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -37,6 +38,17 @@ FILE "02 - Second.flac" WAVE
   TRACK 02 AUDIO
     TITLE "Second"
     INDEX 01 00:00:00
+`
+
+const wavSourceCue = `PERFORMER "Album Artist"
+TITLE "Album Title"
+FILE "album.wav" WAVE
+  TRACK 01 AUDIO
+    TITLE "First"
+    INDEX 01 00:00:00
+  TRACK 02 AUDIO
+    TITLE "Second"
+    INDEX 01 03:00:00
 `
 
 func TestFindPairs_UnsplitPair(t *testing.T) {
@@ -165,6 +177,129 @@ func TestFindPairs_EmptyIsNonNil(t *testing.T) {
 	}
 	if pairs == nil {
 		t.Fatal("FindPairs returned nil slice; want non-nil empty slice")
+	}
+}
+
+// FindPairs reaches CheckOutputStatus only through a full walk, which can
+// only ever exercise the states a real library produces. These drive it
+// directly, including the ones that decide "done" is false.
+func TestCheckOutputStatus(t *testing.T) {
+	// seed writes a CUE parsing to expected tracks and count FLACs into the
+	// output dir, returning the output root and the cue path.
+	seed := func(t *testing.T, cueContent string, outputTracks int) (output, cuePath string) {
+		t.Helper()
+		input := t.TempDir()
+		output = t.TempDir()
+		cuePath = filepath.Join(input, "Album", "album.cue")
+		writeFile(t, cuePath, cueContent)
+		for i := 1; i <= outputTracks; i++ {
+			writeFile(t, filepath.Join(output, "Album", fmt.Sprintf("%02d - Track.flac", i)), "audio")
+		}
+		return output, cuePath
+	}
+
+	t.Run("fully split", func(t *testing.T) {
+		output, cuePath := seed(t, twoTrackCue, 2)
+		done, tracks := CheckOutputStatus(output, "Album", cuePath)
+		if !done || tracks != 2 {
+			t.Fatalf("CheckOutputStatus() = (%v, %d), want (true, 2)", done, tracks)
+		}
+	})
+
+	t.Run("more output than expected still counts as done", func(t *testing.T) {
+		// outputTracks >= expected, not ==: a stray extra FLAC (a bonus track,
+		// a manual addition) must not re-open a finished album.
+		output, cuePath := seed(t, twoTrackCue, 3)
+		done, tracks := CheckOutputStatus(output, "Album", cuePath)
+		if !done || tracks != 3 {
+			t.Fatalf("CheckOutputStatus() = (%v, %d), want (true, 3)", done, tracks)
+		}
+	})
+
+	t.Run("partial output is not done", func(t *testing.T) {
+		output, cuePath := seed(t, twoTrackCue, 1)
+		done, tracks := CheckOutputStatus(output, "Album", cuePath)
+		if done || tracks != 1 {
+			t.Fatalf("CheckOutputStatus() = (%v, %d), want (false, 1)", done, tracks)
+		}
+	})
+
+	t.Run("no output tracks is not done", func(t *testing.T) {
+		output, cuePath := seed(t, twoTrackCue, 0)
+		// The album's output directory exists but holds nothing.
+		if err := os.MkdirAll(filepath.Join(output, "Album"), 0o755); err != nil {
+			t.Fatalf("MkdirAll: %v", err)
+		}
+		done, tracks := CheckOutputStatus(output, "Album", cuePath)
+		if done || tracks != 0 {
+			t.Fatalf("CheckOutputStatus() = (%v, %d), want (false, 0)", done, tracks)
+		}
+	})
+
+	t.Run("unparseable cue expects zero tracks and is never done", func(t *testing.T) {
+		// expected == 0 must not make any output count as complete —
+		// otherwise an unreadable CUE would mark every album split.
+		output, cuePath := seed(t, "not a cue sheet at all", 2)
+		done, tracks := CheckOutputStatus(output, "Album", cuePath)
+		if done || tracks != 2 {
+			t.Fatalf("CheckOutputStatus() = (%v, %d), want (false, 2)", done, tracks)
+		}
+	})
+
+	t.Run("missing output dir", func(t *testing.T) {
+		output, cuePath := seed(t, twoTrackCue, 0)
+		done, tracks := CheckOutputStatus(output, "Album", cuePath)
+		if done || tracks != 0 {
+			t.Fatalf("CheckOutputStatus() = (%v, %d), want (false, 0)", done, tracks)
+		}
+	})
+
+	t.Run("output path is a file, not a dir", func(t *testing.T) {
+		output, cuePath := seed(t, twoTrackCue, 0)
+		writeFile(t, filepath.Join(output, "Album"), "not a directory")
+		done, tracks := CheckOutputStatus(output, "Album", cuePath)
+		if done || tracks != 0 {
+			t.Fatalf("CheckOutputStatus() = (%v, %d), want (false, 0)", done, tracks)
+		}
+	})
+
+	t.Run("subdirectories and non-flac files are not counted", func(t *testing.T) {
+		output, cuePath := seed(t, twoTrackCue, 2)
+		writeFile(t, filepath.Join(output, "Album", "cover.jpg"), "img")
+		writeFile(t, filepath.Join(output, "Album", "nested", "03 - Track.flac"), "audio")
+		done, tracks := CheckOutputStatus(output, "Album", cuePath)
+		if !done || tracks != 2 {
+			t.Fatalf("CheckOutputStatus() = (%v, %d), want (true, 2)", done, tracks)
+		}
+	})
+}
+
+// TestFindPairs_WavSourceHasEmptyFlacFiles pins today's asymmetry rather
+// than blessing it: cue.HasSourceFLAC accepts a .wav FILE reference (and
+// cue.TotalSeconds can read one), so a WAV-sourced album *does* list as an
+// unsplit pair — but FindPairs only ever collects .flac names, so the pair
+// comes back with an empty FlacFiles. Supporting WAV end-to-end is a product
+// decision; this test exists so the current behaviour cannot drift silently.
+func TestFindPairs_WavSourceHasEmptyFlacFiles(t *testing.T) {
+	input := t.TempDir()
+	output := t.TempDir()
+
+	albumDir := filepath.Join(input, "Artist", "Wav Album")
+	writeFile(t, filepath.Join(albumDir, "album.cue"), wavSourceCue)
+	writeFile(t, filepath.Join(albumDir, "album.wav"), "fake audio")
+
+	pairs, err := FindPairs(input, output)
+	if err != nil {
+		t.Fatalf("FindPairs: %v", err)
+	}
+	if len(pairs) != 1 {
+		t.Fatalf("len(pairs) = %d, want 1 — a WAV-sourced CUE is still a valid unsplit pair: %+v", len(pairs), pairs)
+	}
+	if got := pairs[0].CueFiles; len(got) != 1 || got[0] != "album.cue" {
+		t.Errorf("CueFiles = %v, want [album.cue]", got)
+	}
+	if len(pairs[0].FlacFiles) != 0 {
+		t.Errorf("FlacFiles = %v, want empty: FindPairs collects only .flac names, so album.wav is not listed", pairs[0].FlacFiles)
 	}
 }
 

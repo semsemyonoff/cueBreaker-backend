@@ -90,6 +90,45 @@ func TestParseWavDuration(t *testing.T) {
 		}
 	})
 
+	// RIFF chunks are word-aligned: an odd-sized chunk carries a pad byte
+	// that its size field does not count. A parser that advanced by the raw
+	// size would land one byte short and read a garbage chunk header for the
+	// data chunk, so this pins the alignment step.
+	t.Run("odd-sized chunk before data is word-aligned", func(t *testing.T) {
+		header := buildWavHeader(8000, 16000, 8000) // 0.5s
+		oddChunk := []byte("LIST")
+		oddChunk = binary.LittleEndian.AppendUint32(oddChunk, 3)
+		oddChunk = append(oddChunk, []byte("INF")...) // 3 bytes of payload...
+		oddChunk = append(oddChunk, 0)                // ...plus the pad byte
+
+		withOdd := append(append(append([]byte{}, header[:36]...), oddChunk...), header[36:]...)
+		got, err := parseWavDuration(withOdd)
+		if err != nil {
+			t.Fatalf("parseWavDuration() unexpected error: %v", err)
+		}
+		if got != 0.5 {
+			t.Fatalf("parseWavDuration() = %v, want 0.5", got)
+		}
+	})
+
+	t.Run("truncated fmt chunk", func(t *testing.T) {
+		header := buildWavHeader(44100, 88200, 88200)
+		// 24 bytes: past the fmt chunk's own header, but short of its byteRate
+		// field at chunkStart+8.
+		if _, err := parseWavDuration(header[:24]); err == nil {
+			t.Fatalf("parseWavDuration(truncated fmt chunk) = nil error, want error")
+		}
+	})
+
+	t.Run("missing fmt chunk", func(t *testing.T) {
+		header := buildWavHeader(44100, 88200, 88200)
+		// Rename "fmt " so only the data chunk is recognized.
+		copy(header[12:16], "junk")
+		if _, err := parseWavDuration(header); err == nil {
+			t.Fatalf("parseWavDuration(no fmt chunk) = nil error, want error")
+		}
+	})
+
 	t.Run("truncated", func(t *testing.T) {
 		header := buildWavHeader(44100, 88200, 88200)
 		if _, err := parseWavDuration(header[:20]); err == nil {
@@ -138,6 +177,27 @@ func TestTotalSeconds_Wav(t *testing.T) {
 	}
 	if got != 0.5 {
 		t.Fatalf("TotalSeconds(%q) = %v, want 0.5", path, got)
+	}
+}
+
+// A FLAC duration read depends on metaflac being installed. When it is not,
+// TotalSeconds must surface the error rather than report a bogus duration —
+// callers treat an error as "unknown" and degrade.
+func TestTotalSeconds_Flac_MetaflacMissing(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "album.flac")
+	if err := os.WriteFile(path, []byte("fake"), 0o644); err != nil {
+		t.Fatalf("write flac fixture: %v", err)
+	}
+	// An empty PATH: metaflac cannot be found, so exec fails before it runs.
+	t.Setenv("PATH", t.TempDir())
+
+	got, err := TotalSeconds(path)
+	if err == nil {
+		t.Fatalf("TotalSeconds() = %v, nil error; want an error when metaflac is missing", got)
+	}
+	if got != 0 {
+		t.Fatalf("TotalSeconds() = %v, want 0 alongside the error", got)
 	}
 }
 

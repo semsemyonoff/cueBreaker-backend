@@ -128,6 +128,36 @@ func TestHandleSearch_EmptyQuery(t *testing.T) {
 	}
 }
 
+func TestHandleScan_FindPairsError(t *testing.T) {
+	s, inputDir, _ := testServer(t, nil)
+	// FindPairs only fails on an unreadable input root; the server resolved
+	// it at construction, so removing it now reaches the 500 branch.
+	if err := os.RemoveAll(inputDir); err != nil {
+		t.Fatalf("RemoveAll(%q): %v", inputDir, err)
+	}
+
+	rr := httptest.NewRecorder()
+	s.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/scan", nil))
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500: %s", rr.Code, rr.Body)
+	}
+}
+
+func TestHandleSearch_FindPairsError(t *testing.T) {
+	s, inputDir, _ := testServer(t, nil)
+	if err := os.RemoveAll(inputDir); err != nil {
+		t.Fatalf("RemoveAll(%q): %v", inputDir, err)
+	}
+
+	rr := httptest.NewRecorder()
+	s.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/search?q=album", nil))
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500: %s", rr.Code, rr.Body)
+	}
+}
+
 func TestHandleSearch_Match(t *testing.T) {
 	s, inputDir, _ := testServer(t, nil)
 	writeFile(t, filepath.Join(inputDir, "Album", "album.cue"), twoTrackCue)
@@ -388,6 +418,119 @@ func TestHandleStatus_Found(t *testing.T) {
 	}
 	if resp.Status != job.StatusDone {
 		t.Fatalf("job status = %q, want done", resp.Status)
+	}
+}
+
+// TestDecodePathRequest_InvalidBody pins the shared decodePathRequest 400 on
+// both endpoints that use it.
+func TestDecodePathRequest_InvalidBody(t *testing.T) {
+	for _, endpoint := range []string{"/api/preview", "/api/split"} {
+		t.Run(endpoint, func(t *testing.T) {
+			s, _, _ := testServer(t, nil)
+
+			rr := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, endpoint, bytes.NewReader([]byte("{not json")))
+			s.ServeHTTP(rr, req)
+
+			if rr.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400: %s", rr.Code, rr.Body)
+			}
+			var body map[string]string
+			decodeJSON(t, rr, &body)
+			if body["error"] != "invalid request body" {
+				t.Fatalf("error = %q, want invalid request body", body["error"])
+			}
+		})
+	}
+}
+
+// TestScanRelPath_AbsolutePathRejected covers the filepath.IsAbs arm of
+// scanRelPath: an absolute path is refused even when it names a real,
+// contained CUE file.
+func TestScanRelPath_AbsolutePathRejected(t *testing.T) {
+	for _, endpoint := range []string{"/api/preview", "/api/split"} {
+		t.Run(endpoint, func(t *testing.T) {
+			s, inputDir, _ := testServer(t, nil)
+			albumDir := filepath.Join(inputDir, "Album")
+			writeFile(t, filepath.Join(albumDir, "album.cue"), twoTrackCue)
+			writeFile(t, filepath.Join(albumDir, "album.wav"), string(buildWavHeader(44100, 88200, 88200)))
+
+			body, _ := json.Marshal(pathRequest{Path: albumDir, CueFile: "album.cue"})
+			rr := httptest.NewRecorder()
+			s.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, endpoint, bytes.NewReader(body)))
+
+			if rr.Code != http.StatusForbidden {
+				t.Fatalf("status = %d, want 403: %s", rr.Code, rr.Body)
+			}
+		})
+	}
+}
+
+func TestHandlePreview_ParseError(t *testing.T) {
+	s, inputDir, _ := testServer(t, nil)
+	cuePath := filepath.Join(inputDir, "Album", "album.cue")
+	writeFile(t, cuePath, twoTrackCue)
+	writeFile(t, filepath.Join(inputDir, "Album", "album.wav"), string(buildWavHeader(44100, 88200, 88200)))
+
+	// cue.Parse only fails when the file cannot be read; the containment
+	// checks ahead of it need the file to exist, so make it unreadable.
+	if err := os.Chmod(cuePath, 0o000); err != nil {
+		t.Fatalf("Chmod(%q): %v", cuePath, err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(cuePath, 0o644) })
+	if _, err := os.ReadFile(cuePath); err == nil {
+		t.Skip("file mode does not restrict reads (running as root?)")
+	}
+
+	body, _ := json.Marshal(pathRequest{Path: "Album", CueFile: "album.cue"})
+	rr := httptest.NewRecorder()
+	s.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/api/preview", bytes.NewReader(body)))
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500: %s", rr.Code, rr.Body)
+	}
+}
+
+// TestHandlePreview_NilTracksNormalized pins the []cue.Track{} normalization:
+// a CUE with no TRACK entries must serialize "tracks": [], not null, since the
+// SPA maps over the array.
+func TestHandlePreview_NilTracksNormalized(t *testing.T) {
+	s, inputDir, _ := testServer(t, nil)
+	writeFile(t, filepath.Join(inputDir, "Album", "album.cue"), "PERFORMER \"Artist\"\nTITLE \"Album\"\nFILE \"album.wav\" WAVE\n")
+	writeFile(t, filepath.Join(inputDir, "Album", "album.wav"), string(buildWavHeader(44100, 88200, 88200)))
+
+	body, _ := json.Marshal(pathRequest{Path: "Album", CueFile: "album.cue"})
+	rr := httptest.NewRecorder()
+	s.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/api/preview", bytes.NewReader(body)))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rr.Code, rr.Body)
+	}
+
+	var raw map[string]json.RawMessage
+	decodeJSON(t, rr, &raw)
+	if got := string(raw["tracks"]); got != "[]" {
+		t.Fatalf("tracks = %s, want []", got)
+	}
+}
+
+// TestHandleCover_ForbiddenRealPath separates handleCover's 403 (the directory
+// resolves outside the input root) from its 404 (contained, but no cover).
+func TestHandleCover_ForbiddenRealPath(t *testing.T) {
+	s, inputDir, _ := testServer(t, nil)
+	outsideDir := t.TempDir()
+	writeFile(t, filepath.Join(outsideDir, "cover.jpg"), "fake-jpeg-bytes")
+
+	linkPath := filepath.Join(inputDir, "Escape")
+	if err := os.Symlink(outsideDir, linkPath); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	rr := httptest.NewRecorder()
+	s.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/cover/Escape", nil))
+
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403 (a cover exists there, so a 404 would mean the containment check never ran)", rr.Code)
 	}
 }
 

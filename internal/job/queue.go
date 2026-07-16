@@ -2,10 +2,21 @@ package job
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
 	"git.horn/cueBreaker/backend/internal/split"
+)
+
+// The reasons Enqueue can refuse a job. They map to different HTTP statuses —
+// ErrDuplicate is the caller's own doing and retrying is pointless until the
+// running job finishes, whereas the other two are the server being unable to
+// take work right now — so callers must be able to tell them apart.
+var (
+	ErrDuplicate = errors.New("a split for this album and CUE sheet is already in progress")
+	ErrQueueFull = errors.New("the split queue is full")
+	ErrShutdown  = errors.New("the splitter is shutting down")
 )
 
 // SplitFunc matches split.Run's signature, letting tests substitute a fake
@@ -59,26 +70,35 @@ func NewManager(ctx context.Context, splitFn SplitFunc) *Manager {
 	return m
 }
 
-// Enqueue registers a new split job under id and returns true once it is
-// queued. It returns false without enqueuing anything if a job with this id
-// is already queued, splitting, or tagging, if the queue is full, or if the
-// Manager's context is already done.
-func (m *Manager) Enqueue(id string, opts split.Options) bool {
+// Enqueue registers a new split job under id and returns nil once it is
+// queued. It enqueues nothing and reports ErrDuplicate if a job with this id
+// is already queued, splitting, or tagging, ErrQueueFull if the queue is full,
+// or ErrShutdown if the Manager's context is already done.
+func (m *Manager) Enqueue(id string, opts split.Options) error {
 	m.mu.Lock()
-	if existing, ok := m.jobs[id]; ok && existing.Status.active() {
+	existing, hadPrior := m.jobs[id]
+	if hadPrior && existing.Status.active() {
 		m.mu.Unlock()
-		return false
+		return ErrDuplicate
 	}
 	m.jobs[id] = &State{Status: StatusQueued}
 	m.mu.Unlock()
+
+	// The placeholder above overwrote whatever terminal state a previous run
+	// left behind, and we do not yet know the send will succeed. Hold on to it
+	// so a refusal can put it back rather than erase a real completion.
+	var prior *State
+	if hadPrior {
+		prior = existing
+	}
 
 	// Checked before the send, not as a second `case` alongside it: with a
 	// cancelled ctx and a ready buffer both live, select picks at random, so
 	// half the post-shutdown enqueues would be accepted.
 	select {
 	case <-m.ctx.Done():
-		m.reject(id)
-		return false
+		m.reject(id, prior)
+		return ErrShutdown
 	default:
 	}
 
@@ -89,20 +109,32 @@ func (m *Manager) Enqueue(id string, opts split.Options) bool {
 	// a freed slot could ever start is not.
 	select {
 	case m.queue <- queuedJob{id: id, opts: opts, ctx: jobCtx, cancel: cancel}:
-		return true
+		return nil
 	default:
 		cancel()
-		m.reject(id)
-		return false
+		m.reject(id, prior)
+		return ErrQueueFull
 	}
 }
 
-// reject drops the StatusQueued placeholder Enqueue optimistically registered,
-// so a refused job leaves no state behind for Get to report.
-func (m *Manager) reject(id string) {
+// reject undoes the StatusQueued placeholder Enqueue optimistically
+// registered, restoring the state the id held before — a refused re-split must
+// not erase the previous run's result — or leaving no state at all when the id
+// was new.
+func (m *Manager) reject(id string, prior *State) {
 	m.mu.Lock()
-	delete(m.jobs, id)
-	m.mu.Unlock()
+	defer m.mu.Unlock()
+	// Only roll back our own placeholder: a concurrent Enqueue that won the
+	// race owns the entry now, and restoring a stale State over it would
+	// resurrect a finished job on top of a live one.
+	if cur, ok := m.jobs[id]; !ok || cur.Status != StatusQueued {
+		return
+	}
+	if prior == nil {
+		delete(m.jobs, id)
+		return
+	}
+	m.jobs[id] = prior
 }
 
 // Get returns a copy of job id's current state, and whether it exists.

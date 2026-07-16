@@ -160,6 +160,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SplitConflict"
+        "503":
+          # Queue full or shutting down: no job was created and there is no id
+          # to poll, so the body is a plain Error, not a SplitConflict.
+          $ref: "#/components/responses/Error"
 
   /api/status/{job_id}:
     get:

@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -159,9 +160,17 @@ func (s *Server) handleSplit(w http.ResponseWriter, r *http.Request) {
 		OutDir:    filepath.Join(s.cfg.OutputDir, relPath),
 	}
 
-	if !s.jobs.Enqueue(jobID, opts) {
+	switch err := s.jobs.Enqueue(jobID, opts); {
+	case err == nil:
+	case errors.Is(err, job.ErrDuplicate):
 		s.logger.Warn("split already in progress", "job_id", jobID)
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "Already in progress", "job_id": jobID})
+		return
+	default:
+		// Queue full or shutting down: the album has no job of its own, so
+		// there is no job_id to poll — only a later retry can help.
+		s.logger.Warn("split refused", "job_id", jobID, "reason", err)
+		s.writeError(w, http.StatusServiceUnavailable, "The splitter cannot accept new jobs right now. Try again shortly.")
 		return
 	}
 

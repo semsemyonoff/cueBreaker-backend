@@ -343,6 +343,41 @@ func TestHandleSplit_EnqueueThenDuplicate(t *testing.T) {
 	close(release)
 }
 
+// A refusal that is not a duplicate must not answer 409: telling the client
+// "Already in progress" and handing it a job_id for a job that was never
+// created sends it polling an id that only ever 404s.
+func TestHandleSplit_RefusedWhenManagerStopped(t *testing.T) {
+	inputDir := t.TempDir()
+	writeFile(t, filepath.Join(inputDir, "Album", "album.cue"), twoTrackCue)
+	writeFile(t, filepath.Join(inputDir, "Album", "album.wav"), string(buildWavHeader(44100, 88200, 88200)))
+
+	// A manager whose context is already cancelled refuses every enqueue with
+	// ErrShutdown — the same non-duplicate branch a full queue takes.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	mgr := job.NewManager(ctx, func(ctx context.Context, opts split.Options) ([]string, error) {
+		return nil, nil
+	})
+	cfg := config.Config{InputDir: inputDir, OutputDir: t.TempDir(), Port: 5000}
+	s, err := New(cfg, mgr, "test-version", slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	body, _ := json.Marshal(pathRequest{Path: "Album", CueFile: "album.cue"})
+	rr := httptest.NewRecorder()
+	s.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/api/split", bytes.NewReader(body)))
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503: %s", rr.Code, rr.Body)
+	}
+	var resp map[string]string
+	decodeJSON(t, rr, &resp)
+	if _, ok := resp["job_id"]; ok {
+		t.Fatalf("response carries job_id = %q; no job was created, so there is nothing to poll", resp["job_id"])
+	}
+}
+
 func TestHandleSplit_OutputEscapeRejected(t *testing.T) {
 	// A CUE that legitimately resolves under inputDir, reached via a ".."
 	// path whose input-side join stays contained but whose output-side join

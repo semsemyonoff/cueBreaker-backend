@@ -35,8 +35,8 @@ func TestManager_EnqueueRunDone(t *testing.T) {
 	}
 	m := NewManager(context.Background(), splitFn)
 
-	if ok := m.Enqueue("dir/album.cue", split.Options{}); !ok {
-		t.Fatalf("Enqueue() = false, want true")
+	if err := m.Enqueue("dir/album.cue", split.Options{}); err != nil {
+		t.Fatalf("Enqueue() = %v, want nil", err)
 	}
 
 	s := waitForStatus(t, m, "dir/album.cue", StatusDone, time.Second)
@@ -87,21 +87,21 @@ func TestManager_Enqueue_DuplicateRejectedWhileQueued(t *testing.T) {
 
 	// A different job occupies the single worker so the second Enqueue for
 	// "id" lands in the queue behind it, still in the queued state.
-	if !m.Enqueue("other", split.Options{}) {
-		t.Fatalf("Enqueue(other) = false, want true")
+	if err := m.Enqueue("other", split.Options{}); err != nil {
+		t.Fatalf("Enqueue(other) = %v, want nil", err)
 	}
 	<-blockFirst // "other" is now running inside splitFn, worker is busy.
 
-	if !m.Enqueue("id", split.Options{}) {
-		t.Fatalf("Enqueue(id) = false, want true")
+	if err := m.Enqueue("id", split.Options{}); err != nil {
+		t.Fatalf("Enqueue(id) = %v, want nil", err)
 	}
 	s, ok := m.Get("id")
 	if !ok || s.Status != StatusQueued {
 		t.Fatalf("Get(id) = %+v, %v; want StatusQueued", s, ok)
 	}
 
-	if m.Enqueue("id", split.Options{}) {
-		t.Fatalf("Enqueue(id) duplicate = true, want false while queued")
+	if err := m.Enqueue("id", split.Options{}); !errors.Is(err, ErrDuplicate) {
+		t.Fatalf("Enqueue(id) duplicate = %v, want ErrDuplicate while queued", err)
 	}
 
 	close(release)
@@ -119,21 +119,21 @@ func TestManager_Enqueue_DuplicateRejectedWhileSplitting(t *testing.T) {
 	}
 	m := NewManager(context.Background(), splitFn)
 
-	if !m.Enqueue("id", split.Options{}) {
-		t.Fatalf("Enqueue(id) = false, want true")
+	if err := m.Enqueue("id", split.Options{}); err != nil {
+		t.Fatalf("Enqueue(id) = %v, want nil", err)
 	}
 	<-started
 
-	if m.Enqueue("id", split.Options{}) {
-		t.Fatalf("Enqueue(id) duplicate = true, want false while splitting")
+	if err := m.Enqueue("id", split.Options{}); !errors.Is(err, ErrDuplicate) {
+		t.Fatalf("Enqueue(id) duplicate = %v, want ErrDuplicate while splitting", err)
 	}
 
 	close(release)
 	waitForStatus(t, m, "id", StatusDone, time.Second)
 
 	// Once the job is done, its slot is free again.
-	if !m.Enqueue("id", split.Options{}) {
-		t.Fatalf("Enqueue(id) after done = false, want true")
+	if err := m.Enqueue("id", split.Options{}); err != nil {
+		t.Fatalf("Enqueue(id) after done = %v, want nil", err)
 	}
 }
 
@@ -235,8 +235,8 @@ func TestManager_WorkerStopsOnContextDone(t *testing.T) {
 		t.Fatal("worker still running 2s after its context was cancelled")
 	}
 
-	if m.Enqueue("id", split.Options{}) {
-		t.Fatal("Enqueue() = true after shutdown, want false — nothing drains the queue")
+	if err := m.Enqueue("id", split.Options{}); !errors.Is(err, ErrShutdown) {
+		t.Fatalf("Enqueue() = %v after shutdown, want ErrShutdown — nothing drains the queue", err)
 	}
 
 	select {
@@ -267,26 +267,26 @@ func TestManager_EnqueueRefusesWhenQueueFull(t *testing.T) {
 	// enqueuing straight through is what makes the count exact: until the worker
 	// has taken a job, every send lands in the buffer and the arithmetic below
 	// is off by one.
-	if !m.Enqueue("occupier", split.Options{}) {
-		t.Fatal("Enqueue(occupier) = false, want true")
+	if err := m.Enqueue("occupier", split.Options{}); err != nil {
+		t.Fatalf("Enqueue(occupier) = %v, want nil", err)
 	}
 	waitForStatus(t, m, "occupier", StatusSplitting, 2*time.Second)
 
 	// With the worker busy, the buffer takes exactly cap(m.queue) more.
 	for i := range cap(m.queue) {
-		if !m.Enqueue(fmt.Sprintf("id-%d", i), split.Options{}) {
-			t.Fatalf("Enqueue(id-%d) = false, want true — still within capacity", i)
+		if err := m.Enqueue(fmt.Sprintf("id-%d", i), split.Options{}); err != nil {
+			t.Fatalf("Enqueue(id-%d) = %v, want nil — still within capacity", i, err)
 		}
 	}
 
 	// Enqueue must not block, so the assertion is only reachable if it returns.
-	done := make(chan bool, 1)
+	done := make(chan error, 1)
 	go func() { done <- m.Enqueue("overflow", split.Options{}) }()
 
 	select {
-	case accepted := <-done:
-		if accepted {
-			t.Fatal("Enqueue() = true with the queue full, want false")
+	case err := <-done:
+		if !errors.Is(err, ErrQueueFull) {
+			t.Fatalf("Enqueue() = %v with the queue full, want ErrQueueFull", err)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("Enqueue() blocked on a full queue — it must refuse instead")
@@ -294,6 +294,57 @@ func TestManager_EnqueueRefusesWhenQueueFull(t *testing.T) {
 
 	if s, ok := m.Get("overflow"); ok {
 		t.Fatalf("Get(overflow) = %+v, true; want not found — a refused job leaves no state", s)
+	}
+}
+
+// A refusal must not erase what the id already held: Enqueue overwrites the
+// entry with a queued placeholder before it knows the send will succeed, so a
+// refused re-split of a finished album would otherwise turn that album's `done`
+// into a 404 on the next poll.
+func TestManager_EnqueueRefused_KeepsPriorState(t *testing.T) {
+	release := make(chan struct{})
+	var runs atomic.Int32
+	splitFn := func(ctx context.Context, opts split.Options) ([]string, error) {
+		// The first job completes; every later one parks, so the queue fills.
+		if runs.Add(1) > 1 {
+			<-release
+		}
+		return []string{"01 - Track.flac"}, nil
+	}
+
+	m := NewManager(t.Context(), splitFn)
+	defer close(release)
+
+	// "done-album" runs to completion and keeps its results...
+	if err := m.Enqueue("done-album", split.Options{}); err != nil {
+		t.Fatalf("Enqueue(done-album) = %v, want nil", err)
+	}
+	waitForStatus(t, m, "done-album", StatusDone, 2*time.Second)
+
+	// ...then the worker parks on another job and the buffer fills behind it.
+	if err := m.Enqueue("occupier", split.Options{}); err != nil {
+		t.Fatalf("Enqueue(occupier) = %v, want nil", err)
+	}
+	waitForStatus(t, m, "occupier", StatusSplitting, 2*time.Second)
+	for i := range cap(m.queue) {
+		if err := m.Enqueue(fmt.Sprintf("filler-%d", i), split.Options{}); err != nil {
+			t.Fatalf("Enqueue(filler-%d) = %v, want nil", i, err)
+		}
+	}
+
+	if err := m.Enqueue("done-album", split.Options{}); !errors.Is(err, ErrQueueFull) {
+		t.Fatalf("Enqueue(done-album) re-split = %v, want ErrQueueFull", err)
+	}
+
+	s, ok := m.Get("done-album")
+	if !ok {
+		t.Fatal("Get(done-album) = not found; a refused re-split must not delete the completed run")
+	}
+	if s.Status != StatusDone {
+		t.Fatalf("Status = %v, want %v — the refused re-split clobbered the completed state", s.Status, StatusDone)
+	}
+	if len(s.ResultFiles) != 1 {
+		t.Fatalf("ResultFiles = %v, want the previous run's 1 entry", s.ResultFiles)
 	}
 }
 
@@ -309,8 +360,8 @@ func TestManager_Enqueue_CompletedJobRerunsAndReplacesState(t *testing.T) {
 	}
 	m := NewManager(context.Background(), splitFn)
 
-	if !m.Enqueue("id", split.Options{}) {
-		t.Fatalf("Enqueue() = false, want true")
+	if err := m.Enqueue("id", split.Options{}); err != nil {
+		t.Fatalf("Enqueue() = %v, want nil", err)
 	}
 	first := waitForStatus(t, m, "id", StatusDone, time.Second)
 	if len(first.ResultFiles) != 1 {
@@ -318,8 +369,8 @@ func TestManager_Enqueue_CompletedJobRerunsAndReplacesState(t *testing.T) {
 	}
 
 	// A done job holds no slot, so the same id is accepted again.
-	if !m.Enqueue("id", split.Options{}) {
-		t.Fatalf("Enqueue() after done = false, want true")
+	if err := m.Enqueue("id", split.Options{}); err != nil {
+		t.Fatalf("Enqueue() after done = %v, want nil", err)
 	}
 
 	// Enqueue resets the registry entry to queued, so wait for the second

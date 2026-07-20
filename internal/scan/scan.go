@@ -1,13 +1,16 @@
 package scan
 
 import (
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"git.horn/cueBreaker/backend/internal/cue"
+	"git.horn/cueBreaker/backend/internal/joblog"
 )
 
 // Pair describes a directory holding a CUE sheet that references an
@@ -22,15 +25,42 @@ type Pair struct {
 	OutputTracks int      `json:"output_tracks"`
 }
 
+// Result is the outcome of a walk: the pairs found, a log of every rejected
+// directory and why, and a summary of the walk.
+type Result struct {
+	Pairs   []Pair         `json:"items"`
+	Log     []joblog.Entry `json:"log"`
+	Summary Summary        `json:"summary"`
+}
+
+// Summary counts the outcome of a walk.
+type Summary struct {
+	DirsWalked int   `json:"dirs_walked"`
+	Albums     int   `json:"albums"`
+	Unsplit    int   `json:"unsplit"`
+	Skipped    int   `json:"skipped"`
+	ElapsedMs  int64 `json:"elapsed_ms"`
+}
+
 // FindPairs walks inputDir and returns every directory containing at least
 // one CUE sheet that references an existing single source FLAC/WAV (i.e. an
 // unsplit album), sorted by relative path. A directory whose CUE sheets are
-// all multi-file (already split) or reference a missing source is skipped.
-func FindPairs(inputDir, outputDir string) ([]Pair, error) {
+// all multi-file (already split) or reference a missing source is skipped,
+// and — provided the directory held at least one .cue — logged with the
+// reason from cue.CheckSourceFLAC. Directories with no .cue at all produce
+// no log entry: they are the overwhelming majority of a walk and carry no
+// signal.
+func FindPairs(inputDir, outputDir string) (Result, error) {
+	start := time.Now()
+	log := joblog.New(0)
+	log.Add(joblog.LevelInfo, "scanning %s", inputDir)
+
 	// Initialize non-nil so an empty library marshals to JSON [] rather than
 	// null; the SPA treats the response as an array (items.length) and would
 	// otherwise crash on the first-run empty scan.
 	results := []Pair{}
+	dirsWalked := 0
+	skipped := 0
 
 	err := filepath.WalkDir(inputDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -40,14 +70,19 @@ func FindPairs(inputDir, outputDir string) ([]Pair, error) {
 			if path == inputDir {
 				return err
 			}
+			log.Add(joblog.LevelWarn, "skip %s — unreadable: %s", relOrSelf(inputDir, path), err)
+			skipped++
 			return nil
 		}
 		if !d.IsDir() {
 			return nil
 		}
+		dirsWalked++
 
 		entries, err := os.ReadDir(path)
 		if err != nil {
+			log.Add(joblog.LevelWarn, "skip %s — unreadable: %s", relOrSelf(inputDir, path), err)
+			skipped++
 			return nil
 		}
 
@@ -68,23 +103,31 @@ func FindPairs(inputDir, outputDir string) ([]Pair, error) {
 		if len(cueFiles) == 0 {
 			return nil
 		}
-
-		var validCues []string
-		for _, cf := range cueFiles {
-			if cue.HasSourceFLAC(filepath.Join(path, cf), path) {
-				validCues = append(validCues, cf)
-			}
-		}
-		if len(validCues) == 0 {
-			return nil
-		}
-		sort.Strings(validCues)
-		sort.Strings(flacFiles)
+		sort.Strings(cueFiles)
 
 		relPath, err := filepath.Rel(inputDir, path)
 		if err != nil {
 			return err
 		}
+
+		var validCues []string
+		var firstRejectErr error
+		for _, cf := range cueFiles {
+			checkErr := cue.CheckSourceFLAC(filepath.Join(path, cf), path)
+			if checkErr != nil {
+				if firstRejectErr == nil {
+					firstRejectErr = checkErr
+				}
+				continue
+			}
+			validCues = append(validCues, cf)
+		}
+		if len(validCues) == 0 {
+			log.Add(rejectLevel(firstRejectErr), "skip %s — %s", relPath, firstRejectErr)
+			skipped++
+			return nil
+		}
+		sort.Strings(flacFiles)
 
 		firstCue := filepath.Join(path, validCues[0])
 		done, outputTracks := CheckOutputStatus(outputDir, relPath, firstCue)
@@ -100,11 +143,55 @@ func FindPairs(inputDir, outputDir string) ([]Pair, error) {
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return Result{}, err
 	}
 
 	sort.Slice(results, func(i, j int) bool { return results[i].Path < results[j].Path })
-	return results, nil
+
+	unsplit := 0
+	for _, p := range results {
+		if !p.SplitDone {
+			unsplit++
+		}
+	}
+	elapsed := time.Since(start)
+
+	log.Add(joblog.LevelInfo, "scanned %d dirs · %d albums · %d unsplit · %d skipped · %dms",
+		dirsWalked, len(results), unsplit, skipped, elapsed.Milliseconds())
+	entries, _ := log.Since(0)
+
+	return Result{
+		Pairs: results,
+		Log:   entries,
+		Summary: Summary{
+			DirsWalked: dirsWalked,
+			Albums:     len(results),
+			Unsplit:    unsplit,
+			Skipped:    skipped,
+			ElapsedMs:  elapsed.Milliseconds(),
+		},
+	}, nil
+}
+
+// rejectLevel classifies a cue.CheckSourceFLAC error into the log level a
+// scan rejection line should carry: info for outcomes that are expected
+// steady-state (already split, non-audio source), warn for everything that
+// suggests something is actually wrong with the directory or CUE.
+func rejectLevel(err error) joblog.Level {
+	if errors.Is(err, cue.ErrMultiFileReference) || errors.Is(err, cue.ErrNotFLACOrWAV) {
+		return joblog.LevelInfo
+	}
+	return joblog.LevelWarn
+}
+
+// relOrSelf returns path relative to base, falling back to path itself if
+// the relative form cannot be computed.
+func relOrSelf(base, path string) string {
+	rel, err := filepath.Rel(base, path)
+	if err != nil {
+		return path
+	}
+	return rel
 }
 
 // CheckOutputStatus compares the number of FLAC files already present under

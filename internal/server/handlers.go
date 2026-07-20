@@ -43,13 +43,13 @@ type statusResponse struct {
 }
 
 func (s *Server) handleScan(w http.ResponseWriter, r *http.Request) {
-	pairs, err := scan.FindPairs(s.cfg.InputDir, s.cfg.OutputDir)
+	result, err := scan.FindPairs(s.cfg.InputDir, s.cfg.OutputDir)
 	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.logger.Info("scan complete", "pairs", len(pairs))
-	writeJSON(w, http.StatusOK, pairs)
+	s.logger.Info("scan complete", "pairs", len(result.Pairs))
+	writeJSON(w, http.StatusOK, result.Pairs)
 }
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
@@ -59,12 +59,12 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pairs, err := scan.FindPairs(s.cfg.InputDir, s.cfg.OutputDir)
+	result, err := scan.FindPairs(s.cfg.InputDir, s.cfg.OutputDir)
 	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, scan.Search(pairs, q))
+	writeJSON(w, http.StatusOK, scan.Search(result.Pairs, q))
 }
 
 func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {

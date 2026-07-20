@@ -1,6 +1,8 @@
 package cue
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -129,36 +131,68 @@ func fileReferences(content string) []string {
 	return refs
 }
 
-// HasSourceFLAC reports whether cuePath is a single-file CUE whose FILE
-// reference points at an existing FLAC/WAV in dir (i.e. an unsplit album).
-// A multi-file CUE, a missing/unreadable CUE, or a missing source file all
-// report false. The referenced file must also stay under dir after resolving
-// symlinks — the same containment SourceFLAC enforces — so scan eligibility
-// never lists an album whose FILE "../x.flac" (or a symlinked source) later
-// preview/split resolution would reject.
-func HasSourceFLAC(cuePath, dir string) bool {
+// Sentinel errors identifying why CheckSourceFLAC rejected a CUE sheet.
+// Each is wrapped with context via fmt.Errorf("%w: ...", ...), so callers
+// compare with errors.Is rather than matching message text.
+var (
+	// ErrCUEUnreadable means the CUE sheet could not be read or decoded.
+	ErrCUEUnreadable = errors.New("cue unreadable")
+	// ErrNoFileReference means the CUE sheet has no FILE reference.
+	ErrNoFileReference = errors.New("no FILE reference")
+	// ErrMultiFileReference means the CUE sheet has more than one FILE
+	// reference — the album is already split into per-track files.
+	ErrMultiFileReference = errors.New("multi-file cue")
+	// ErrNotFLACOrWAV means the CUE's single FILE reference does not name
+	// a .flac/.wav file.
+	ErrNotFLACOrWAV = errors.New("source is not FLAC/WAV")
+	// ErrSourceMissing means the referenced source file does not exist,
+	// or its real path (after resolving symlinks) is not contained in dir.
+	ErrSourceMissing = errors.New("source file missing")
+)
+
+// CheckSourceFLAC reports why cuePath is not a single-file CUE whose FILE
+// reference points at an existing FLAC/WAV in dir (i.e. an unsplit album),
+// or nil when it is. The referenced file must stay under dir after
+// resolving symlinks — the same containment SourceFLAC enforces — so scan
+// eligibility never accepts an album whose FILE "../x.flac" (or a symlinked
+// source) later preview/split resolution would reject.
+func CheckSourceFLAC(cuePath, dir string) error {
 	content, err := ReadCUE(cuePath)
 	if err != nil {
-		return false
+		return fmt.Errorf("%w: %s: %w", ErrCUEUnreadable, filepath.Base(cuePath), err)
 	}
 
 	refs := fileReferences(content)
-	if len(refs) != 1 {
-		return false
+	if len(refs) == 0 {
+		return fmt.Errorf("%w in %s", ErrNoFileReference, filepath.Base(cuePath))
+	}
+	if len(refs) > 1 {
+		return fmt.Errorf("%w (already split): %s", ErrMultiFileReference, filepath.Base(cuePath))
 	}
 
 	ref := refs[0]
 	lower := strings.ToLower(ref)
 	if !strings.HasSuffix(lower, ".flac") && !strings.HasSuffix(lower, ".wav") {
-		return false
+		return fmt.Errorf("%w: %s", ErrNotFLACOrWAV, ref)
 	}
 
 	realDir, err := filepath.EvalSymlinks(dir)
 	if err != nil {
-		return false
+		return fmt.Errorf("%w: %s", ErrSourceMissing, ref)
 	}
-	_, ok := containedFile(dir, realDir, ref)
-	return ok
+	if _, ok := containedFile(dir, realDir, ref); !ok {
+		return fmt.Errorf("%w: %s", ErrSourceMissing, ref)
+	}
+
+	return nil
+}
+
+// HasSourceFLAC reports whether cuePath is a single-file CUE whose FILE
+// reference points at an existing FLAC/WAV in dir (i.e. an unsplit album).
+// A multi-file CUE, a missing/unreadable CUE, or a missing source file all
+// report false. See CheckSourceFLAC for the reason behind a false result.
+func HasSourceFLAC(cuePath, dir string) bool {
+	return CheckSourceFLAC(cuePath, dir) == nil
 }
 
 // SourceFLAC resolves the source audio file for album within dir: the

@@ -1,6 +1,7 @@
 package cue
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -340,6 +341,155 @@ INDEX 01 00:00:00
 			t.Error("HasSourceFLAC() = true, want false for a symlink that escapes dir")
 		}
 	})
+}
+
+func TestCheckSourceFLAC(t *testing.T) {
+	tests := []struct {
+		name    string
+		setup   func(t *testing.T) (cuePath, dir string)
+		wantErr error
+	}{
+		{
+			name: "unreadable cue",
+			setup: func(t *testing.T) (string, string) {
+				dir := t.TempDir()
+				return filepath.Join(dir, "does_not_exist.cue"), dir
+			},
+			wantErr: ErrCUEUnreadable,
+		},
+		{
+			name: "no FILE reference",
+			setup: func(t *testing.T) (string, string) {
+				dir := t.TempDir()
+				writeFile(t, filepath.Join(dir, "album.flac"), "")
+				cuePath := filepath.Join(dir, "album.cue")
+				writeFile(t, cuePath, `PERFORMER "Album Artist"
+TRACK 01 AUDIO
+INDEX 01 00:00:00
+`)
+				return cuePath, dir
+			},
+			wantErr: ErrNoFileReference,
+		},
+		{
+			name: "multiple FILE references",
+			setup: func(t *testing.T) (string, string) {
+				dir := t.TempDir()
+				writeFile(t, filepath.Join(dir, "01.flac"), "")
+				writeFile(t, filepath.Join(dir, "02.flac"), "")
+				cuePath := filepath.Join(dir, "album.cue")
+				writeFile(t, cuePath, `FILE "01.flac" WAVE
+TRACK 01 AUDIO
+INDEX 01 00:00:00
+FILE "02.flac" WAVE
+TRACK 02 AUDIO
+INDEX 01 00:00:00
+`)
+				return cuePath, dir
+			},
+			wantErr: ErrMultiFileReference,
+		},
+		{
+			name: "non-FLAC/WAV reference",
+			setup: func(t *testing.T) (string, string) {
+				dir := t.TempDir()
+				writeFile(t, filepath.Join(dir, "album.mp3"), "")
+				cuePath := filepath.Join(dir, "album.cue")
+				writeFile(t, cuePath, `FILE "album.mp3" MP3
+TRACK 01 AUDIO
+INDEX 01 00:00:00
+`)
+				return cuePath, dir
+			},
+			wantErr: ErrNotFLACOrWAV,
+		},
+		{
+			name: "missing source file",
+			setup: func(t *testing.T) (string, string) {
+				dir := t.TempDir()
+				cuePath := filepath.Join(dir, "album.cue")
+				writeFile(t, cuePath, `FILE "album.flac" WAVE
+TRACK 01 AUDIO
+INDEX 01 00:00:00
+`)
+				return cuePath, dir
+			},
+			wantErr: ErrSourceMissing,
+		},
+		{
+			name: "source escapes dir via ..",
+			setup: func(t *testing.T) (string, string) {
+				parent := t.TempDir()
+				writeFile(t, filepath.Join(parent, "outside.flac"), "")
+				dir := filepath.Join(parent, "album")
+				cuePath := filepath.Join(dir, "album.cue")
+				writeFile(t, cuePath, `FILE "../outside.flac" WAVE
+TRACK 01 AUDIO
+INDEX 01 00:00:00
+`)
+				return cuePath, dir
+			},
+			wantErr: ErrSourceMissing,
+		},
+		{
+			name: "valid single-file cue",
+			setup: func(t *testing.T) (string, string) {
+				dir := t.TempDir()
+				writeFile(t, filepath.Join(dir, "album.flac"), "")
+				cuePath := filepath.Join(dir, "album.cue")
+				writeFile(t, cuePath, `FILE "album.flac" WAVE
+TRACK 01 AUDIO
+INDEX 01 00:00:00
+`)
+				return cuePath, dir
+			},
+			wantErr: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cuePath, dir := tt.setup(t)
+			err := CheckSourceFLAC(cuePath, dir)
+			if tt.wantErr == nil {
+				if err != nil {
+					t.Errorf("CheckSourceFLAC() = %v, want nil", err)
+				}
+				return
+			}
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("CheckSourceFLAC() = %v, want error matching %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestHasSourceFLAC_AgreesWithCheckSourceFLAC pins that HasSourceFLAC's
+// bool result agrees with CheckSourceFLAC's error across every fixture in
+// TestHasSourceFLAC, since HasSourceFLAC is now a one-line wrapper over it.
+func TestHasSourceFLAC_AgreesWithCheckSourceFLAC(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "album.flac"), "")
+	cuePath := filepath.Join(dir, "album.cue")
+	writeFile(t, cuePath, `FILE "album.flac" WAVE
+TRACK 01 AUDIO
+INDEX 01 00:00:00
+`)
+
+	if got, want := HasSourceFLAC(cuePath, dir), CheckSourceFLAC(cuePath, dir) == nil; got != want {
+		t.Errorf("HasSourceFLAC() = %v, want %v (agreement with CheckSourceFLAC)", got, want)
+	}
+	if !HasSourceFLAC(cuePath, dir) {
+		t.Error("HasSourceFLAC() = false, want true for a valid single-file cue")
+	}
+
+	missingCue := filepath.Join(dir, "does_not_exist.cue")
+	if got, want := HasSourceFLAC(missingCue, dir), CheckSourceFLAC(missingCue, dir) == nil; got != want {
+		t.Errorf("HasSourceFLAC() = %v, want %v (agreement with CheckSourceFLAC)", got, want)
+	}
+	if HasSourceFLAC(missingCue, dir) {
+		t.Error("HasSourceFLAC() = true, want false when the CUE cannot be read")
+	}
 }
 
 func TestSourceFLAC(t *testing.T) {

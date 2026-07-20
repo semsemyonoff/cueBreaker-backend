@@ -1,5 +1,7 @@
 package job
 
+import "git.horn/cueBreaker/backend/internal/joblog"
+
 // Status represents where a job currently is in the split pipeline.
 type Status string
 
@@ -25,6 +27,11 @@ type State struct {
 	ProgressCurrent int
 	ProgressTotal   int
 	ProgressDetail  string
+
+	// Log holds this job's synthesized pipeline events. It is not serialized
+	// directly — the server handler reads it into the wire response, since the
+	// buffer is a shared pointer rather than a value to copy per State.
+	Log *joblog.Buffer
 }
 
 // JobID derives the job registry key from a scan-relative directory path

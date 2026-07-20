@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 
+	"git.horn/cueBreaker/backend/internal/joblog"
 	"git.horn/cueBreaker/backend/internal/split"
 )
 
@@ -81,7 +82,7 @@ func (m *Manager) Enqueue(id string, opts split.Options) error {
 		m.mu.Unlock()
 		return ErrDuplicate
 	}
-	m.jobs[id] = &State{Status: StatusQueued}
+	m.jobs[id] = &State{Status: StatusQueued, Log: joblog.New(0)}
 	m.mu.Unlock()
 
 	// The placeholder above overwrote whatever terminal state a previous run
@@ -171,6 +172,7 @@ func (m *Manager) run(qj queuedJob) {
 			m.update(qj.id, func(s *State) {
 				s.Status = StatusError
 				s.Message = fmt.Sprintf("split panicked: %v", r)
+				s.Log.Add(joblog.LevelError, "split panicked: %v", r)
 			})
 		}
 	}()
@@ -178,10 +180,12 @@ func (m *Manager) run(qj queuedJob) {
 	m.update(qj.id, func(s *State) {
 		s.Status = StatusSplitting
 		s.Message = "Starting split..."
+		s.Log.Add(joblog.LevelInfo, "starting split")
 	})
 
 	opts := qj.opts
 	opts.Progress = m.progressFunc(qj.id)
+	opts.Log = m.logFunc(qj.id)
 
 	result, err := m.splitFn(qj.ctx, opts)
 	if err != nil {
@@ -214,6 +218,16 @@ func (m *Manager) progressFunc(id string) split.ProgressFunc {
 			s.ProgressCurrent = current
 			s.ProgressTotal = total
 			s.ProgressDetail = detail
+		})
+	}
+}
+
+// logFunc adapts split.Run's log callback into an append onto job id's log
+// buffer.
+func (m *Manager) logFunc(id string) split.LogFunc {
+	return func(level joblog.Level, format string, args ...any) {
+		m.update(id, func(s *State) {
+			s.Log.Add(level, format, args...)
 		})
 	}
 }

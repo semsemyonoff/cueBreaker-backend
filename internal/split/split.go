@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"git.horn/cueBreaker/backend/internal/cue"
+	"git.horn/cueBreaker/backend/internal/joblog"
 )
 
 // breakpointsTimeout bounds how long cuebreakpoints may run, mirroring
@@ -21,6 +22,9 @@ const breakpointsTimeout = 30 * time.Second
 // the combined split+tag step count (2 * track count).
 type ProgressFunc func(current, total int, detail string)
 
+// LogFunc receives synthesized pipeline events as the split runs.
+type LogFunc func(level joblog.Level, format string, args ...any)
+
 // Options configures a split run.
 type Options struct {
 	// CuePath is the path to the original (possibly non-UTF-8) CUE file.
@@ -31,6 +35,41 @@ type Options struct {
 	OutDir string
 	// Progress, if non-nil, is called as the pipeline advances.
 	Progress ProgressFunc
+	// Log, if non-nil, is called with synthesized pipeline events.
+	Log LogFunc
+}
+
+// reporter bundles the progress and log callbacks threaded through the
+// split pipeline so runShnsplit and finishSplit take one value instead of
+// a growing parameter list. Each method is a no-op when its underlying
+// callback is nil.
+type reporter struct {
+	progress ProgressFunc
+	log      LogFunc
+}
+
+func (r reporter) step(current, total int, detail string) {
+	if r.progress != nil {
+		r.progress(current, total, detail)
+	}
+}
+
+func (r reporter) info(format string, args ...any) {
+	if r.log != nil {
+		r.log(joblog.LevelInfo, format, args...)
+	}
+}
+
+func (r reporter) warn(format string, args ...any) {
+	if r.log != nil {
+		r.log(joblog.LevelWarn, format, args...)
+	}
+}
+
+func (r reporter) errf(format string, args ...any) {
+	if r.log != nil {
+		r.log(joblog.LevelError, format, args...)
+	}
 }
 
 // Run executes the full split pipeline: it resolves the source audio file,
@@ -62,31 +101,26 @@ func Run(ctx context.Context, opts Options) ([]string, error) {
 
 	trackCount := len(album.Tracks)
 	totalSteps := trackCount * 2
+	r := reporter{progress: opts.Progress, log: opts.Log}
 
-	reportProgress(opts.Progress, 0, totalSteps, "Calculating breakpoints...")
+	r.step(0, totalSteps, "Calculating breakpoints...")
 	if err := runCuebreakpoints(ctx, utf8Cue); err != nil {
 		return nil, err
 	}
 
-	reportProgress(opts.Progress, 0, totalSteps, "Splitting FLAC...")
-	if err := runShnsplit(ctx, utf8Cue, sourcePath, opts.OutDir, trackCount, totalSteps, opts.Progress); err != nil {
+	r.step(0, totalSteps, "Splitting FLAC...")
+	if err := runShnsplit(ctx, utf8Cue, sourcePath, opts.OutDir, trackCount, totalSteps, r); err != nil {
 		return nil, err
 	}
 
-	reportProgress(opts.Progress, trackCount, totalSteps, "Splitting complete, tagging...")
-	result, err := finishSplit(ctx, utf8Cue, album, opts.SourceDir, opts.OutDir, trackCount, totalSteps, opts.Progress)
+	r.step(trackCount, totalSteps, "Splitting complete, tagging...")
+	result, err := finishSplit(ctx, utf8Cue, album, opts.SourceDir, opts.OutDir, trackCount, totalSteps, r)
 	if err != nil {
 		return nil, err
 	}
 
-	reportProgress(opts.Progress, totalSteps, totalSteps, "Complete")
+	r.step(totalSteps, totalSteps, "Complete")
 	return result, nil
-}
-
-func reportProgress(progress ProgressFunc, current, total int, detail string) {
-	if progress != nil {
-		progress(current, total, detail)
-	}
 }
 
 // runContext runs name with args under ctx, bounded additionally by
@@ -114,7 +148,7 @@ func runCuebreakpoints(ctx context.Context, utf8Cue string) error {
 // runShnsplit runs shnsplit directly under ctx (no additional timeout, so
 // a long split is only bounded by the job's own cancellation), streaming
 // its stderr line-by-line into progress via streamShnsplitProgress.
-func runShnsplit(ctx context.Context, utf8Cue, sourcePath, outDir string, trackCount, totalSteps int, progress ProgressFunc) error {
+func runShnsplit(ctx context.Context, utf8Cue, sourcePath, outDir string, trackCount, totalSteps int, r reporter) error {
 	cmd := exec.CommandContext(ctx, "shnsplit",
 		"-f", utf8Cue,
 		"-O", "always",
@@ -146,7 +180,7 @@ func runShnsplit(ctx context.Context, utf8Cue, sourcePath, outDir string, trackC
 	}
 
 	lines, readErr := streamShnsplitProgress(stderr, trackCount, func(step splitStep) {
-		reportProgress(progress, step.current, totalSteps, "Splitting: "+step.detail)
+		r.step(step.current, totalSteps, "Splitting: "+step.detail)
 	})
 
 	waitErr := cmd.Wait()

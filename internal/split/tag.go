@@ -106,7 +106,7 @@ func listSplitFLACs(dir string) ([]string, error) {
 // FLAC file names (result_files). trackCount/totalSteps are the same
 // values Run used to size the split half of the progress bar; the tagging
 // half continues from trackCount up to totalSteps.
-func finishSplit(ctx context.Context, utf8Cue string, album cue.Album, sourceDir, outDir string, trackCount, totalSteps int, progress ProgressFunc) ([]string, error) {
+func finishSplit(ctx context.Context, utf8Cue string, album cue.Album, sourceDir, outDir string, trackCount, totalSteps int, r reporter) ([]string, error) {
 	names, err := listSplitFLACs(outDir)
 	if err != nil {
 		return nil, fmt.Errorf("split: list output files: %w", err)
@@ -118,7 +118,7 @@ func finishSplit(ctx context.Context, utf8Cue string, album cue.Album, sourceDir
 
 	for i, name := range realNames {
 		trackNum := i + 1
-		reportProgress(progress, trackCount+trackNum, totalSteps, "Tagging: "+name)
+		r.step(trackCount+trackNum, totalSteps, "Tagging: "+name)
 
 		fields := trackTagFields{
 			Title:       cueprintTrackField(ctx, utf8Cue, trackNum, "%t"),
@@ -133,7 +133,7 @@ func finishSplit(ctx context.Context, utf8Cue string, album cue.Album, sourceDir
 		applyMetaflacTags(ctx, filepath.Join(outDir, name), buildTags(fields))
 	}
 
-	reportProgress(progress, totalSteps, totalSteps, "Copying cover...")
+	r.step(totalSteps, totalSteps, "Copying cover...")
 	for _, name := range pregapNames {
 		if err := os.Remove(filepath.Join(outDir, name)); err != nil {
 			return nil, fmt.Errorf("split: remove pregap file: %w", err)

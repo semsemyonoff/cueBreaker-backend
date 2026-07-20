@@ -11,10 +11,23 @@ FLAC+CUE album splitter, Go backend. A single static binary serving a JSON API u
 - `internal/config` — `CUEBREAKER_*` env config.
 - `internal/cue` — encoding-detecting CUE reader; parser (album meta + tracks, `INDEX 01`
   as `MM:SS:FF` + numeric `StartSeconds`); UTF-8 temp-copy; FLAC/WAV duration.
-- `internal/scan` — walk `INPUT_DIR` for single-file FLAC+CUE pairs; already-split status; cover art.
+  `CheckSourceFLAC` returns a distinct error per rejection reason (unreadable, zero/multiple
+  `FILE` refs, non-FLAC/WAV, missing source); `HasSourceFLAC` is a one-line bool wrapper over it.
+- `internal/joblog` — bounded, monotonically-sequenced log ring (`Buffer`, cap 500), shared by
+  scan and split. `Since(seq)` survives ring overflow without skipping or replaying a line; a nil
+  `*Buffer` is a safe no-op. Imports nothing project-local.
+- `internal/scan` — walk `INPUT_DIR` for single-file FLAC+CUE pairs; already-split status; cover
+  art. `FindPairs` returns a `Result{Pairs, Log, Summary}`: one log line per rejected directory
+  (only when it held a `.cue`), plus a walk summary. `GET /api/scan` mirrors this as an object
+  (`{items, log, summary}`), not a bare array — `GET /api/search` stays an array.
 - `internal/split` — `cuebreakpoints` → `shnsplit` (stderr → progress) → tagging (`cueprint` +
-  `metaflac`) → pregap removal → cover copy.
-- `internal/job` — serialized worker (one split at a time) + in-memory job registry.
+  `metaflac`) → pregap removal → cover copy. A `reporter` (built from `Options.Progress` +
+  `Options.Log`) is threaded through `runShnsplit`/`finishSplit` and emits synthesized pipeline
+  events (parse, source, breakpoints, per-track, tag, cover, done); raw tool stderr reaches the
+  log only as an `error` line at existing failure sites.
+- `internal/job` — serialized worker (one split at a time) + in-memory job registry. Each `State`
+  carries a `Log *joblog.Buffer`, fresh per `Enqueue` (a re-split starts an empty log); a rejected
+  enqueue restores the prior state, log included.
 - `internal/server` — `net/http` mux (Go 1.22+ patterns), JSON handlers, realpath containment,
   `embed.FS` SPA serving with fallback, `slog`. Routes are declared in one `apiRoutes()` table
   that `routes()` iterates — add a route there, not with a stray `mux.Handle`.
@@ -56,5 +69,7 @@ Also exposed in the DWE workspace as `dwe cmd backend.{run,test,lint}`.
 - `GET /api/version` reports `server.BuildInfo`: the app's own version plus `shntool_version`,
   probed once at startup by `split.ShntoolVersion` (`shntool -v`) and omitted when unknown — a
   missing tool is an absent version, never a startup error.
+- `GET /api/status/{job_id}` accepts `?log_since=N` (missing/unparseable treated as `0`) and
+  returns `log`/`log_next` alongside the existing fields, for incremental log polling.
 
 > `CLAUDE.md` is a symlink to this file. Edit `AGENTS.md`.

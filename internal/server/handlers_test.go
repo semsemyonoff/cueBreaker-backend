@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 
 	"git.horn/cueBreaker/backend/internal/config"
 	"git.horn/cueBreaker/backend/internal/job"
+	"git.horn/cueBreaker/backend/internal/joblog"
 	"git.horn/cueBreaker/backend/internal/scan"
 	"git.horn/cueBreaker/backend/internal/split"
 )
@@ -99,6 +101,8 @@ func TestHandleScan(t *testing.T) {
 	s, inputDir, _ := testServer(t, nil)
 	writeFile(t, filepath.Join(inputDir, "Album", "album.cue"), twoTrackCue)
 	writeFile(t, filepath.Join(inputDir, "Album", "album.wav"), string(buildWavHeader(44100, 88200, 88200)))
+	// A rejected directory so the response's log/summary fields are non-trivial.
+	writeFile(t, filepath.Join(inputDir, "Rejected", "album.cue"), twoTrackCue)
 
 	rr := httptest.NewRecorder()
 	s.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/scan", nil))
@@ -106,10 +110,16 @@ func TestHandleScan(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200: %s", rr.Code, rr.Body)
 	}
-	var pairs []scan.Pair
-	decodeJSON(t, rr, &pairs)
-	if len(pairs) != 1 || pairs[0].Path != "Album" {
-		t.Fatalf("pairs = %+v, want one entry for Album", pairs)
+	var result scan.Result
+	decodeJSON(t, rr, &result)
+	if len(result.Pairs) != 1 || result.Pairs[0].Path != "Album" {
+		t.Fatalf("items = %+v, want one entry for Album", result.Pairs)
+	}
+	if len(result.Log) == 0 {
+		t.Fatalf("log = %+v, want at least the scan bookend entries", result.Log)
+	}
+	if result.Summary.Albums != 1 || result.Summary.Skipped != 1 {
+		t.Fatalf("summary = %+v, want albums=1 skipped=1", result.Summary)
 	}
 }
 
@@ -471,6 +481,102 @@ func TestHandleStatus_Found(t *testing.T) {
 	if resp.Status != job.StatusDone {
 		t.Fatalf("job status = %q, want done", resp.Status)
 	}
+}
+
+// TestHandleStatus_LogSince pins log_since's contract: an absent parameter
+// returns the whole retained buffer and its own log_next, and a follow-up
+// request with that cursor returns only entries added after it.
+func TestHandleStatus_LogSince(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	splitFn := func(ctx context.Context, opts split.Options) ([]string, error) {
+		close(started)
+		<-release
+		opts.Log(joblog.LevelInfo, "midway")
+		return []string{"01 - First.flac"}, nil
+	}
+	s, inputDir, _ := testServer(t, splitFn)
+	writeFile(t, filepath.Join(inputDir, "Album", "album.cue"), twoTrackCue)
+	writeFile(t, filepath.Join(inputDir, "Album", "album.wav"), string(buildWavHeader(44100, 88200, 88200)))
+
+	body, _ := json.Marshal(pathRequest{Path: "Album", CueFile: "album.cue"})
+	s.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/api/split", bytes.NewReader(body)))
+	<-started
+
+	rr := httptest.NewRecorder()
+	s.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/status/Album/album.cue", nil))
+	var resp statusResponse
+	decodeJSON(t, rr, &resp)
+	if len(resp.Log) != 1 || resp.Log[0].Text != "starting split" {
+		t.Fatalf("log = %+v, want one 'starting split' entry for an absent log_since", resp.Log)
+	}
+	if resp.LogNext != 1 {
+		t.Fatalf("log_next = %d, want 1", resp.LogNext)
+	}
+	cursor := resp.LogNext
+
+	close(release)
+
+	deadline := time.Now().Add(time.Second)
+	for {
+		rr = httptest.NewRecorder()
+		s.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/status/Album/album.cue?log_since=%d", cursor), nil))
+		decodeJSON(t, rr, &resp)
+		if resp.Status == job.StatusDone || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	if resp.Status != job.StatusDone {
+		t.Fatalf("job status = %q, want done", resp.Status)
+	}
+	if len(resp.Log) != 1 || resp.Log[0].Text != "midway" {
+		t.Fatalf("tail log = %+v, want only the post-cursor 'midway' entry", resp.Log)
+	}
+}
+
+// TestHandleStatus_LogEmptyIsArrayNotNull uses the single-worker FIFO queue
+// to hold a second job in StatusQueued (log never touched) so its response
+// pins the "never null" contract on a genuinely empty buffer.
+func TestHandleStatus_LogEmptyIsArrayNotNull(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	splitFn := func(ctx context.Context, opts split.Options) ([]string, error) {
+		close(started)
+		<-release
+		return []string{"01 - First.flac"}, nil
+	}
+	s, inputDir, _ := testServer(t, splitFn)
+	writeFile(t, filepath.Join(inputDir, "AlbumA", "album.cue"), twoTrackCue)
+	writeFile(t, filepath.Join(inputDir, "AlbumA", "album.wav"), string(buildWavHeader(44100, 88200, 88200)))
+	writeFile(t, filepath.Join(inputDir, "AlbumB", "album.cue"), twoTrackCue)
+	writeFile(t, filepath.Join(inputDir, "AlbumB", "album.wav"), string(buildWavHeader(44100, 88200, 88200)))
+
+	bodyA, _ := json.Marshal(pathRequest{Path: "AlbumA", CueFile: "album.cue"})
+	s.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/api/split", bytes.NewReader(bodyA)))
+	<-started // the single worker is now blocked processing AlbumA
+
+	bodyB, _ := json.Marshal(pathRequest{Path: "AlbumB", CueFile: "album.cue"})
+	s.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/api/split", bytes.NewReader(bodyB)))
+
+	rr := httptest.NewRecorder()
+	s.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/status/AlbumB/album.cue", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rr.Code, rr.Body)
+	}
+	var resp statusResponse
+	decodeJSON(t, rr, &resp)
+	if resp.Status != job.StatusQueued {
+		t.Fatalf("status = %q, want queued", resp.Status)
+	}
+	if resp.Log == nil || len(resp.Log) != 0 {
+		t.Fatalf("log = %#v, want a non-nil empty slice", resp.Log)
+	}
+	if !bytes.Contains(rr.Body.Bytes(), []byte(`"log":[]`)) {
+		t.Fatalf("body = %s, want the wire shape \"log\":[]", rr.Body)
+	}
+
+	close(release)
 }
 
 // TestDecodePathRequest_InvalidBody pins the shared decodePathRequest 400 on

@@ -6,10 +6,12 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"git.horn/cueBreaker/backend/internal/cue"
 	"git.horn/cueBreaker/backend/internal/job"
+	"git.horn/cueBreaker/backend/internal/joblog"
 	"git.horn/cueBreaker/backend/internal/scan"
 	"git.horn/cueBreaker/backend/internal/split"
 )
@@ -34,12 +36,14 @@ type previewResponse struct {
 
 // statusResponse is the wire shape of a job's current state.
 type statusResponse struct {
-	Status          job.Status `json:"status"`
-	Message         string     `json:"message"`
-	ResultFiles     []string   `json:"result_files"`
-	ProgressCurrent int        `json:"progress_current"`
-	ProgressTotal   int        `json:"progress_total"`
-	ProgressDetail  string     `json:"progress_detail"`
+	Status          job.Status     `json:"status"`
+	Message         string         `json:"message"`
+	ResultFiles     []string       `json:"result_files"`
+	ProgressCurrent int            `json:"progress_current"`
+	ProgressTotal   int            `json:"progress_total"`
+	ProgressDetail  string         `json:"progress_detail"`
+	Log             []joblog.Entry `json:"log"`
+	LogNext         int            `json:"log_next"`
 }
 
 func (s *Server) handleScan(w http.ResponseWriter, r *http.Request) {
@@ -49,7 +53,7 @@ func (s *Server) handleScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.logger.Info("scan complete", "pairs", len(result.Pairs))
-	writeJSON(w, http.StatusOK, result.Pairs)
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
@@ -192,6 +196,12 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		resultFiles = []string{}
 	}
 
+	logSince := parseLogSince(r.URL.Query().Get("log_since"))
+	entries, logNext := state.Log.Since(logSince)
+	if entries == nil {
+		entries = []joblog.Entry{}
+	}
+
 	writeJSON(w, http.StatusOK, statusResponse{
 		Status:          state.Status,
 		Message:         state.Message,
@@ -199,7 +209,23 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		ProgressCurrent: state.ProgressCurrent,
 		ProgressTotal:   state.ProgressTotal,
 		ProgressDetail:  state.ProgressDetail,
+		Log:             entries,
+		LogNext:         logNext,
 	})
+}
+
+// parseLogSince parses the log_since query parameter into a cursor, treating
+// a missing, negative, or unparseable value as 0 so the first request after
+// a page reload is self-sufficient and returns the whole retained buffer.
+func parseLogSince(raw string) int {
+	if raw == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 0 {
+		return 0
+	}
+	return n
 }
 
 func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {

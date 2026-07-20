@@ -32,13 +32,13 @@ paths:
       operationId: scan
       responses:
         "200":
-          description: The album pairs found (empty array if the library is empty).
+          description: |
+            The album pairs found, plus a log of every rejected directory and
+            a summary of the walk.
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Pair"
+                $ref: "#/components/schemas/ScanResponse"
         "500":
           $ref: "#/components/responses/Error"
 
@@ -177,6 +177,15 @@ paths:
           description: The id returned by `/api/split`. May contain slashes.
           schema:
             type: string
+        - name: log_since
+          in: query
+          required: false
+          description: |
+            Return only log entries with `seq >= log_since`, for incremental
+            polling. A missing or unparseable value returns the whole
+            retained buffer.
+          schema:
+            type: integer
       responses:
         "200":
           description: The job's status snapshot.
@@ -273,6 +282,66 @@ components:
           type: integer
           description: How many tracks that existing split produced.
 
+    LogEntry:
+      type: object
+      description: A single, immutable log line with its position in a log buffer.
+      required: [seq, time, level, text]
+      properties:
+        seq:
+          type: integer
+          description: |
+            Monotonically increasing across the buffer's lifetime; never
+            reused or renumbered when older entries are evicted.
+        time:
+          type: string
+          format: date-time
+        level:
+          $ref: "#/components/schemas/LogLevel"
+        text:
+          type: string
+
+    LogLevel:
+      type: string
+      description: A log entry's severity.
+      enum: [info, warn, error]
+
+    ScanSummary:
+      type: object
+      description: Counts and timing for one walk of the input directory.
+      required: [dirs_walked, albums, unsplit, skipped, elapsed_ms]
+      properties:
+        dirs_walked:
+          type: integer
+        albums:
+          type: integer
+        unsplit:
+          type: integer
+        skipped:
+          type: integer
+        elapsed_ms:
+          type: integer
+
+    ScanResponse:
+      type: object
+      description: |
+        The outcome of a walk: the pairs found, a log of every rejected
+        directory and why, and a summary of the walk.
+      required: [items, log, summary]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Pair"
+        log:
+          type: array
+          items:
+            $ref: "#/components/schemas/LogEntry"
+          description: |
+            One entry per rejected directory (never for a directory with no
+            CUE sheet at all), plus opening and summary bookend lines.
+        summary:
+          $ref: "#/components/schemas/ScanSummary"
+
     Track:
       type: object
       description: A single CUE track entry.
@@ -359,6 +428,8 @@ components:
           progress_current,
           progress_total,
           progress_detail,
+          log,
+          log_next,
         ]
       properties:
         status:
@@ -377,6 +448,18 @@ components:
           type: integer
         progress_detail:
           type: string
+        log:
+          type: array
+          items:
+            $ref: "#/components/schemas/LogEntry"
+          description: |
+            The job's log entries with `seq >= log_since` (the whole retained
+            buffer when `log_since` is absent). Never `null`.
+        log_next:
+          type: integer
+          description: |
+            The cursor to pass as `log_since` on the next poll. Advances even
+            when this response's `log` is empty.
 
     JobStatus:
       type: string

@@ -92,6 +92,108 @@ func TestSpecMatchesRoutes(t *testing.T) {
 	}
 }
 
+// TestSpecDocumentsLogSchemas asserts the schemas backing the split/scan log
+// feature exist and are referenced from the right places — a hand-written
+// spec drifting silently out of sync with the Go JSON shapes is exactly what
+// this file exists to catch.
+func TestSpecDocumentsLogSchemas(t *testing.T) {
+	var doc map[string]any
+	if err := yaml.Unmarshal(specpkg.Spec, &doc); err != nil {
+		t.Fatalf("parse openapi.yaml: %v", err)
+	}
+
+	schemas, ok := lookup[map[string]any](doc, "components", "schemas")
+	if !ok {
+		t.Fatal("components.schemas missing")
+	}
+
+	logEntry, ok := lookup[map[string]any](schemas, "LogEntry")
+	if !ok {
+		t.Fatal("components.schemas.LogEntry missing")
+	}
+	wantRequired := []string{"seq", "time", "level", "text"}
+	gotRequired, _ := lookup[[]any](logEntry, "required")
+	for _, want := range wantRequired {
+		if !containsAny(gotRequired, want) {
+			t.Errorf("LogEntry.required = %v, missing %q", gotRequired, want)
+		}
+	}
+
+	if _, ok := lookup[map[string]any](schemas, "ScanSummary"); !ok {
+		t.Error("components.schemas.ScanSummary missing")
+	}
+
+	scanResponse, ok := lookup[map[string]any](schemas, "ScanResponse")
+	if !ok {
+		t.Fatal("components.schemas.ScanResponse missing")
+	}
+	for _, want := range []string{"items", "log", "summary"} {
+		gotRequired, _ := lookup[[]any](scanResponse, "required")
+		if !containsAny(gotRequired, want) {
+			t.Errorf("ScanResponse.required = %v, missing %q", gotRequired, want)
+		}
+	}
+
+	scanRef, ok := lookup[string](doc, "paths", "/api/scan", "get", "responses", "200",
+		"content", "application/json", "schema", "$ref")
+	if !ok || scanRef != "#/components/schemas/ScanResponse" {
+		t.Errorf("GET /api/scan 200 schema $ref = %q, want %q", scanRef, "#/components/schemas/ScanResponse")
+	}
+
+	status, ok := lookup[map[string]any](schemas, "Status")
+	if !ok {
+		t.Fatal("components.schemas.Status missing")
+	}
+	statusRequired, _ := lookup[[]any](status, "required")
+	for _, want := range []string{"log", "log_next"} {
+		if !containsAny(statusRequired, want) {
+			t.Errorf("Status.required = %v, missing %q", statusRequired, want)
+		}
+	}
+
+	params, ok := lookup[[]any](doc, "paths", "/api/status/{job_id}", "get", "parameters")
+	if !ok {
+		t.Fatal("GET /api/status/{job_id} parameters missing")
+	}
+	found := false
+	for _, p := range params {
+		if m, ok := p.(map[string]any); ok && m["name"] == "log_since" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("GET /api/status/{job_id} does not document the log_since query parameter")
+	}
+}
+
+// lookup walks a chain of nested map keys and type-asserts the result to T.
+func lookup[T any](doc map[string]any, keys ...string) (T, bool) {
+	var cur any = doc
+	for _, k := range keys {
+		m, ok := cur.(map[string]any)
+		if !ok {
+			var zero T
+			return zero, false
+		}
+		cur, ok = m[k]
+		if !ok {
+			var zero T
+			return zero, false
+		}
+	}
+	v, ok := cur.(T)
+	return v, ok
+}
+
+func containsAny(xs []any, want string) bool {
+	for _, x := range xs {
+		if s, ok := x.(string); ok && s == want {
+			return true
+		}
+	}
+	return false
+}
+
 func sortedKeys(m map[string]bool) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {

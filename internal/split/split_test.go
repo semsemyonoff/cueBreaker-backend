@@ -2,12 +2,28 @@ package split
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"git.horn/cueBreaker/backend/internal/joblog"
 )
+
+// logCall is one recorded Options.Log invocation, formatted the way the
+// real joblog.Buffer would format it.
+type logCall struct {
+	level joblog.Level
+	text  string
+}
+
+func collectLog(calls *[]logCall) LogFunc {
+	return func(level joblog.Level, format string, args ...any) {
+		*calls = append(*calls, logCall{level: level, text: fmt.Sprintf(format, args...)})
+	}
+}
 
 const twoTrackCue = `PERFORMER "Test Artist"
 TITLE "Test Album"
@@ -195,6 +211,145 @@ exit 0
 	last := calls[len(calls)-1]
 	if last.current != totalSteps {
 		t.Fatalf("final current = %d, want %d", last.current, totalSteps)
+	}
+}
+
+// writeSuccessTools writes fake cuebreakpoints (given breakpointsScript),
+// shnsplit, cueprint and metaflac binaries onto toolDir, reproducing a
+// clean two-track split (one pregap + two real tracks) with no cover.
+func writeSuccessTools(t *testing.T, toolDir, breakpointsScript string) {
+	t.Helper()
+	writeFakeTool(t, toolDir, "cuebreakpoints", breakpointsScript)
+	writeFakeTool(t, toolDir, "shnsplit", `
+outdir=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -d) outdir="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+touch "$outdir/00 - pregap.flac"
+touch "$outdir/01 - First Track.flac"
+touch "$outdir/02 - Second Track.flac"
+echo "Splitting [album.flac] --> [00 - pregap.flac] : 100% OK" >&2
+echo "Splitting [album.flac] --> [01 - First Track.flac] : 100% OK" >&2
+echo "Splitting [album.flac] --> [02 - Second Track.flac] : 100% OK" >&2
+exit 0
+`)
+	writeFakeTool(t, toolDir, "cueprint", `echo tagvalue`)
+	writeFakeTool(t, toolDir, "metaflac", `exit 0`)
+}
+
+// TestRun_EmitsEventSequence asserts the full, ordered synthesized event
+// log for a clean run: cue/source info, the cuebreakpoints count, one
+// "track"/"pregap" line per shnsplit step, the per-track tagging lines,
+// the pregap removal warning, the no-cover warning and the closing "done"
+// line.
+func TestRun_EmitsEventSequence(t *testing.T) {
+	sourceDir, cuePath, outDir := setupSource(t)
+	toolDir := t.TempDir()
+	writeSuccessTools(t, toolDir, `echo "bp 1"; echo "bp 2"; exit 0`)
+	t.Setenv("PATH", toolDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	var calls []logCall
+	result, err := Run(context.Background(), Options{
+		CuePath:   cuePath,
+		SourceDir: sourceDir,
+		OutDir:    outDir,
+		Log:       collectLog(&calls),
+	})
+	if err != nil {
+		t.Fatalf("Run() unexpected error: %v", err)
+	}
+	if len(result) != 2 {
+		t.Fatalf("result = %v, want 2 files", result)
+	}
+
+	want := []logCall{
+		{joblog.LevelInfo, `cue parsed: 2 tracks · "Test Album"`},
+		{joblog.LevelInfo, "source: album.flac"},
+		{joblog.LevelInfo, "cuebreakpoints: 2 breakpoints"},
+		{joblog.LevelInfo, "pregap → 00 - pregap.flac"},
+		{joblog.LevelInfo, "track 1/2 → 01 - First Track.flac"},
+		{joblog.LevelInfo, "track 2/2 → 02 - Second Track.flac"},
+		{joblog.LevelInfo, "tagged 1/2: 01 - First Track.flac"},
+		{joblog.LevelInfo, "tagged 2/2: 02 - Second Track.flac"},
+		{joblog.LevelWarn, "removed pregap file: 00 - pregap.flac"},
+		{joblog.LevelWarn, "no cover found"},
+		{joblog.LevelInfo, "done: 2 files"},
+	}
+	if len(calls) != len(want) {
+		t.Fatalf("log = %+v, want %+v", calls, want)
+	}
+	for i, w := range want {
+		if calls[i] != w {
+			t.Fatalf("log[%d] = %+v, want %+v (full log: %+v)", i, calls[i], w, calls)
+		}
+	}
+}
+
+// TestRun_ShnsplitFails_LogsError asserts that a failing shnsplit produces
+// an error-level log entry carrying its stderr, in addition to the error
+// it already returns.
+func TestRun_ShnsplitFails_LogsError(t *testing.T) {
+	sourceDir, cuePath, outDir := setupSource(t)
+	toolDir := t.TempDir()
+	writeFakeTool(t, toolDir, "cuebreakpoints", `exit 0`)
+	writeFakeTool(t, toolDir, "shnsplit", `echo "possibly corrupt file" >&2; exit 1`)
+	t.Setenv("PATH", toolDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	var calls []logCall
+	_, err := Run(context.Background(), Options{
+		CuePath:   cuePath,
+		SourceDir: sourceDir,
+		OutDir:    outDir,
+		Log:       collectLog(&calls),
+	})
+	if err == nil {
+		t.Fatal("Run() error = nil, want shnsplit failure")
+	}
+
+	var found *logCall
+	for i := range calls {
+		if calls[i].level == joblog.LevelError {
+			found = &calls[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("log = %+v, want an error entry", calls)
+	}
+	if !strings.Contains(found.text, "shnsplit failed") || !strings.Contains(found.text, "possibly corrupt file") {
+		t.Fatalf("error log entry = %q, want it to mention the shnsplit failure and its stderr", found.text)
+	}
+}
+
+// TestRun_NilLog_Unchanged asserts that leaving Options.Log nil runs the
+// pipeline exactly as it would with a logger attached — the reporter's log
+// methods must no-op rather than panic.
+func TestRun_NilLog_Unchanged(t *testing.T) {
+	sourceDir, cuePath, outDir := setupSource(t)
+	toolDir := t.TempDir()
+	writeSuccessTools(t, toolDir, `exit 0`)
+	t.Setenv("PATH", toolDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	result, err := Run(context.Background(), Options{
+		CuePath:   cuePath,
+		SourceDir: sourceDir,
+		OutDir:    outDir,
+	})
+	if err != nil {
+		t.Fatalf("Run() unexpected error: %v", err)
+	}
+
+	want := []string{"01 - First Track.flac", "02 - Second Track.flac"}
+	if len(result) != len(want) {
+		t.Fatalf("result = %v, want %v", result, want)
+	}
+	for i, name := range want {
+		if result[i] != name {
+			t.Fatalf("result = %v, want %v", result, want)
+		}
 	}
 }
 

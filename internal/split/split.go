@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -72,6 +74,26 @@ func (r reporter) errf(format string, args ...any) {
 	}
 }
 
+// trackFraction formats n/total zero-padded to total's own digit width,
+// e.g. trackFraction(3, 14) is "03/14".
+func trackFraction(n, total int) string {
+	width := len(strconv.Itoa(total))
+	return fmt.Sprintf("%0*d/%0*d", width, n, width, total)
+}
+
+// countNonEmptyLines counts non-blank lines in s, used to turn
+// cuebreakpoints' stdout into a breakpoint count without depending on its
+// exact format.
+func countNonEmptyLines(s string) int {
+	n := 0
+	for line := range strings.SplitSeq(s, "\n") {
+		if strings.TrimSpace(line) != "" {
+			n++
+		}
+	}
+	return n
+}
+
 // Run executes the full split pipeline: it resolves the source audio file,
 // makes a UTF-8 temp copy of the CUE (removed on every exit path), runs
 // cuebreakpoints, then shnsplit — streaming its stderr into Options.Progress,
@@ -79,15 +101,20 @@ func (r reporter) errf(format string, args ...any) {
 // track, removes the discarded pregap file, and copies a discovered cover
 // into OutDir. It returns the sorted list of resulting FLAC file names.
 func Run(ctx context.Context, opts Options) ([]string, error) {
+	r := reporter{progress: opts.Progress, log: opts.Log}
+
 	album, err := cue.Parse(opts.CuePath)
 	if err != nil {
 		return nil, fmt.Errorf("split: parse cue: %w", err)
 	}
+	trackCount := len(album.Tracks)
+	r.info("cue parsed: %d tracks · %q", trackCount, album.Title)
 
 	sourcePath, ok := cue.SourceFLAC(album, opts.SourceDir)
 	if !ok {
 		return nil, fmt.Errorf("split: no source FLAC/WAV found in %s", opts.SourceDir)
 	}
+	r.info("source: %s", filepath.Base(sourcePath))
 
 	utf8Cue, err := cue.MakeUTF8Cue(opts.CuePath)
 	if err != nil {
@@ -99,14 +126,14 @@ func Run(ctx context.Context, opts Options) ([]string, error) {
 		return nil, fmt.Errorf("split: create output dir: %w", err)
 	}
 
-	trackCount := len(album.Tracks)
 	totalSteps := trackCount * 2
-	r := reporter{progress: opts.Progress, log: opts.Log}
 
 	r.step(0, totalSteps, "Calculating breakpoints...")
-	if err := runCuebreakpoints(ctx, utf8Cue); err != nil {
+	breakpointsOut, err := runCuebreakpoints(ctx, utf8Cue, r)
+	if err != nil {
 		return nil, err
 	}
+	r.info("cuebreakpoints: %d breakpoints", countNonEmptyLines(breakpointsOut))
 
 	r.step(0, totalSteps, "Splitting FLAC...")
 	if err := runShnsplit(ctx, utf8Cue, sourcePath, opts.OutDir, trackCount, totalSteps, r); err != nil {
@@ -120,6 +147,7 @@ func Run(ctx context.Context, opts Options) ([]string, error) {
 	}
 
 	r.step(totalSteps, totalSteps, "Complete")
+	r.info("done: %d files", len(result))
 	return result, nil
 }
 
@@ -137,12 +165,14 @@ func runContext(ctx context.Context, timeout time.Duration, name string, args ..
 	return string(out), err
 }
 
-func runCuebreakpoints(ctx context.Context, utf8Cue string) error {
+func runCuebreakpoints(ctx context.Context, utf8Cue string, r reporter) (string, error) {
 	out, err := runContext(ctx, breakpointsTimeout, "cuebreakpoints", utf8Cue)
 	if err != nil {
-		return fmt.Errorf("split: cuebreakpoints failed: %s", strings.TrimSpace(out))
+		trimmed := strings.TrimSpace(out)
+		r.errf("cuebreakpoints failed: %s", trimmed)
+		return "", fmt.Errorf("split: cuebreakpoints failed: %s", trimmed)
 	}
-	return nil
+	return out, nil
 }
 
 // runShnsplit runs shnsplit directly under ctx (no additional timeout, so
@@ -179,8 +209,19 @@ func runShnsplit(ctx context.Context, utf8Cue, sourcePath, outDir string, trackC
 		return fmt.Errorf("split: shnsplit start: %w", err)
 	}
 
+	realTrackNum := 0
 	lines, readErr := streamShnsplitProgress(stderr, trackCount, func(step splitStep) {
 		r.step(step.current, totalSteps, "Splitting: "+step.detail)
+		if isPregapFile(step.detail) {
+			r.info("pregap → %s", step.detail)
+		} else {
+			// step.current is shared with the pregap line and capped at
+			// trackCount, so it cannot be used as this track's own number
+			// (the pregap line would otherwise consume a slot and shift or
+			// duplicate the real numbering). Count real tracks separately.
+			realTrackNum++
+			r.info("track %s → %s", trackFraction(realTrackNum, trackCount), step.detail)
+		}
 	})
 
 	waitErr := cmd.Wait()
@@ -188,7 +229,9 @@ func runShnsplit(ctx context.Context, utf8Cue, sourcePath, outDir string, trackC
 		return fmt.Errorf("split: read shnsplit stderr: %w", readErr)
 	}
 	if waitErr != nil {
-		return fmt.Errorf("split: shnsplit failed: %s", strings.Join(lines, "\n"))
+		text := strings.Join(lines, "\n")
+		r.errf("shnsplit failed: %s", text)
+		return fmt.Errorf("split: shnsplit failed: %s", text)
 	}
 	return nil
 }

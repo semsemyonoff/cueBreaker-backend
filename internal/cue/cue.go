@@ -187,14 +187,6 @@ func CheckSourceFLAC(cuePath, dir string) error {
 	return nil
 }
 
-// HasSourceFLAC reports whether cuePath is a single-file CUE whose FILE
-// reference points at an existing FLAC/WAV in dir (i.e. an unsplit album).
-// A multi-file CUE, a missing/unreadable CUE, or a missing source file all
-// report false. See CheckSourceFLAC for the reason behind a false result.
-func HasSourceFLAC(cuePath, dir string) bool {
-	return CheckSourceFLAC(cuePath, dir) == nil
-}
-
 // SourceFLAC resolves the source audio file for album within dir: the
 // CUE's FILE reference if present and it exists, else the first .flac/.wav
 // file in dir. The candidate is rejected (ok=false) unless its real path

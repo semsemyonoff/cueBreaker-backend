@@ -192,6 +192,12 @@ func (m *Manager) run(qj queuedJob) {
 		m.update(qj.id, func(s *State) {
 			s.Status = StatusError
 			s.Message = err.Error()
+			// split.Run only logs the failures it can attribute to a tool
+			// (cuebreakpoints/shnsplit stderr); a cue parse error, a missing
+			// source, an unwritable output dir or a cancellation would
+			// otherwise leave an errored job with no line explaining why —
+			// exactly when the UI auto-expands this log.
+			s.Log.Add(joblog.LevelError, "split failed: %s", err)
 		})
 		return
 	}

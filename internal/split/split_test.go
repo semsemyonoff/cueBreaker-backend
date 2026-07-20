@@ -291,7 +291,11 @@ func TestRun_EmitsEventSequence(t *testing.T) {
 // TestRun_ShnsplitFails_LogsError asserts that a failing shnsplit produces
 // an error-level log entry carrying its stderr, in addition to the error
 // it already returns.
-func TestRun_ShnsplitFails_LogsError(t *testing.T) {
+// TestRun_ShnsplitFails_ErrorCarriesStderr pins that a failing tool's own
+// diagnostics reach the caller in the returned error rather than in a log
+// entry: job.Manager logs Run's error once, so emitting it here too would
+// double every tool failure in the job log.
+func TestRun_ShnsplitFails_ErrorCarriesStderr(t *testing.T) {
 	sourceDir, cuePath, outDir := setupSource(t)
 	toolDir := t.TempDir()
 	writeFakeTool(t, toolDir, "cuebreakpoints", `exit 0`)
@@ -308,19 +312,57 @@ func TestRun_ShnsplitFails_LogsError(t *testing.T) {
 	if err == nil {
 		t.Fatal("Run() error = nil, want shnsplit failure")
 	}
+	if !strings.Contains(err.Error(), "shnsplit failed") || !strings.Contains(err.Error(), "possibly corrupt file") {
+		t.Fatalf("Run() error = %q, want it to mention the shnsplit failure and its stderr", err)
+	}
 
-	var found *logCall
-	for i := range calls {
-		if calls[i].level == joblog.LevelError {
-			found = &calls[i]
-			break
+	for _, c := range calls {
+		if c.level == joblog.LevelError {
+			t.Fatalf("log = %+v, want no error entry (the job manager logs Run's error)", calls)
 		}
 	}
-	if found == nil {
-		t.Fatalf("log = %+v, want an error entry", calls)
+}
+
+func TestToolDiagnostic(t *testing.T) {
+	tests := []struct {
+		name string
+		out  string
+		want string
+	}{
+		{name: "empty", out: "", want: ""},
+		{name: "blank lines dropped", out: "\n  \nboom\n\n", want: "boom"},
+		{name: "lines joined", out: "a\nb\nc", want: "a; b; c"},
+		{
+			name: "capped to the tail with an ellipsis",
+			out:  "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12",
+			want: "…; 3; 4; 5; 6; 7; 8; 9; 10; 11; 12",
+		},
 	}
-	if !strings.Contains(found.text, "shnsplit failed") || !strings.Contains(found.text, "possibly corrupt file") {
-		t.Fatalf("error log entry = %q, want it to mention the shnsplit failure and its stderr", found.text)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := toolDiagnostic(tt.out); got != tt.want {
+				t.Errorf("toolDiagnostic() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestTrackFraction(t *testing.T) {
+	tests := []struct {
+		n, total int
+		want     string
+	}{
+		{n: 1, total: 2, want: "1/2"},
+		{n: 3, total: 14, want: "03/14"},
+		{n: 7, total: 100, want: "007/100"},
+		{n: 0, total: 0, want: "0/0"},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("%d of %d", tt.n, tt.total), func(t *testing.T) {
+			if got := trackFraction(tt.n, tt.total); got != tt.want {
+				t.Errorf("trackFraction(%d, %d) = %q, want %q", tt.n, tt.total, got, tt.want)
+			}
+		})
 	}
 }
 

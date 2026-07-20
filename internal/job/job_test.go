@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -180,11 +181,27 @@ func TestManager_ErrorMapping(t *testing.T) {
 		return nil, wantErr
 	}
 	m := NewManager(context.Background(), splitFn)
-	m.Enqueue("id", split.Options{})
+	if err := m.Enqueue("id", split.Options{}); err != nil {
+		t.Fatalf("Enqueue() = %v, want nil", err)
+	}
 
 	s := waitForStatus(t, m, "id", StatusError, time.Second)
 	if s.Message != wantErr.Error() {
 		t.Fatalf("Message = %q, want %q", s.Message, wantErr.Error())
+	}
+
+	// split.Run logs nothing for a failure it cannot attribute to a tool, so
+	// the manager must put the reason in the log itself — the UI auto-expands
+	// this panel precisely on status=error.
+	entries, _ := s.Log.Since(0)
+	var found bool
+	for _, e := range entries {
+		if e.Level == joblog.LevelError && strings.Contains(e.Text, wantErr.Error()) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("Log entries = %v, want an error entry carrying %q", entries, wantErr)
 	}
 }
 
@@ -193,7 +210,9 @@ func TestManager_PanicContained(t *testing.T) {
 		panic("unexpected shnsplit output")
 	}
 	m := NewManager(context.Background(), splitFn)
-	m.Enqueue("boom", split.Options{})
+	if err := m.Enqueue("boom", split.Options{}); err != nil {
+		t.Fatalf("Enqueue() = %v, want nil", err)
+	}
 
 	// The panicking job is marked errored rather than crashing the worker,
 	// and a subsequent job on the same manager still runs to completion.
@@ -526,7 +545,9 @@ func TestManager_Log_PanicRecordedAsError(t *testing.T) {
 		panic("unexpected shnsplit output")
 	}
 	m := NewManager(context.Background(), splitFn)
-	m.Enqueue("boom", split.Options{})
+	if err := m.Enqueue("boom", split.Options{}); err != nil {
+		t.Fatalf("Enqueue() = %v, want nil", err)
+	}
 
 	s := waitForStatus(t, m, "boom", StatusError, time.Second)
 	entries, _ := s.Log.Since(0)

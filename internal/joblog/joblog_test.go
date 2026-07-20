@@ -1,6 +1,7 @@
 package joblog
 
 import (
+	"fmt"
 	"sync"
 	"testing"
 )
@@ -160,5 +161,29 @@ func TestBuffer_Concurrent(t *testing.T) {
 	}
 	if next != goroutines*perGoroutine {
 		t.Errorf("next = %d, want %d", next, goroutines*perGoroutine)
+	}
+}
+
+// TestNew_CapacityFallback pins the fallback both production call sites rely
+// on: scan and job both construct their buffer with New(0) and expect the
+// DefaultCapacity ring rather than a buffer that retains nothing.
+func TestNew_CapacityFallback(t *testing.T) {
+	for _, capacity := range []int{0, -1} {
+		t.Run(fmt.Sprintf("New(%d)", capacity), func(t *testing.T) {
+			b := New(capacity)
+			for i := range DefaultCapacity + 10 {
+				b.Add(LevelInfo, "line %d", i)
+			}
+			entries, next := b.Since(0)
+			if len(entries) != DefaultCapacity {
+				t.Fatalf("len(entries) = %d, want %d (DefaultCapacity)", len(entries), DefaultCapacity)
+			}
+			if next != DefaultCapacity+10 {
+				t.Errorf("next = %d, want %d", next, DefaultCapacity+10)
+			}
+			if entries[0].Seq != 10 {
+				t.Errorf("entries[0].Seq = %d, want 10 (the oldest 10 evicted)", entries[0].Seq)
+			}
+		})
 	}
 }

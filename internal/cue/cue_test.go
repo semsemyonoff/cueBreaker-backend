@@ -220,129 +220,6 @@ func writeFile(t *testing.T, path, content string) {
 	}
 }
 
-func TestHasSourceFLAC(t *testing.T) {
-	t.Run("single existing flac", func(t *testing.T) {
-		dir := t.TempDir()
-		writeFile(t, filepath.Join(dir, "album.flac"), "")
-		cuePath := filepath.Join(dir, "album.cue")
-		writeFile(t, cuePath, `FILE "album.flac" WAVE
-TRACK 01 AUDIO
-INDEX 01 00:00:00
-`)
-		if !HasSourceFLAC(cuePath, dir) {
-			t.Error("HasSourceFLAC() = false, want true for single existing FLAC ref")
-		}
-	})
-
-	t.Run("single existing wav", func(t *testing.T) {
-		dir := t.TempDir()
-		writeFile(t, filepath.Join(dir, "album.wav"), "")
-		cuePath := filepath.Join(dir, "album.cue")
-		writeFile(t, cuePath, `FILE "album.wav" WAVE
-TRACK 01 AUDIO
-INDEX 01 00:00:00
-`)
-		if !HasSourceFLAC(cuePath, dir) {
-			t.Error("HasSourceFLAC() = false, want true for single existing WAV ref")
-		}
-	})
-
-	t.Run("missing source file", func(t *testing.T) {
-		dir := t.TempDir()
-		cuePath := filepath.Join(dir, "album.cue")
-		writeFile(t, cuePath, `FILE "album.flac" WAVE
-TRACK 01 AUDIO
-INDEX 01 00:00:00
-`)
-		if HasSourceFLAC(cuePath, dir) {
-			t.Error("HasSourceFLAC() = true, want false when the referenced file does not exist")
-		}
-	})
-
-	t.Run("multi-file cue already split", func(t *testing.T) {
-		dir := t.TempDir()
-		writeFile(t, filepath.Join(dir, "01.flac"), "")
-		writeFile(t, filepath.Join(dir, "02.flac"), "")
-		cuePath := filepath.Join(dir, "album.cue")
-		writeFile(t, cuePath, `FILE "01.flac" WAVE
-TRACK 01 AUDIO
-INDEX 01 00:00:00
-FILE "02.flac" WAVE
-TRACK 02 AUDIO
-INDEX 01 00:00:00
-`)
-		if HasSourceFLAC(cuePath, dir) {
-			t.Error("HasSourceFLAC() = true, want false for a multi-file (already split) CUE")
-		}
-	})
-
-	t.Run("non-audio file ref", func(t *testing.T) {
-		dir := t.TempDir()
-		writeFile(t, filepath.Join(dir, "album.mp3"), "")
-		cuePath := filepath.Join(dir, "album.cue")
-		writeFile(t, cuePath, `FILE "album.mp3" MP3
-TRACK 01 AUDIO
-INDEX 01 00:00:00
-`)
-		if HasSourceFLAC(cuePath, dir) {
-			t.Error("HasSourceFLAC() = true, want false for a non-flac/wav FILE reference")
-		}
-	})
-
-	t.Run("cue with no FILE reference", func(t *testing.T) {
-		dir := t.TempDir()
-		writeFile(t, filepath.Join(dir, "album.flac"), "")
-		cuePath := filepath.Join(dir, "album.cue")
-		writeFile(t, cuePath, `PERFORMER "Album Artist"
-TRACK 01 AUDIO
-INDEX 01 00:00:00
-`)
-		// fileReferences returns 0 refs, and len(refs) != 1 rejects: an album
-		// is only a split candidate when its CUE names exactly one source.
-		if HasSourceFLAC(cuePath, dir) {
-			t.Error("HasSourceFLAC() = true, want false for a CUE with no FILE reference, even with a FLAC beside it")
-		}
-	})
-
-	t.Run("unreadable cue", func(t *testing.T) {
-		dir := t.TempDir()
-		if HasSourceFLAC(filepath.Join(dir, "does_not_exist.cue"), dir) {
-			t.Error("HasSourceFLAC() = true, want false when the CUE cannot be read")
-		}
-	})
-
-	t.Run("FILE reference escapes dir via ..", func(t *testing.T) {
-		parent := t.TempDir()
-		writeFile(t, filepath.Join(parent, "outside.flac"), "")
-		dir := filepath.Join(parent, "album")
-		cuePath := filepath.Join(dir, "album.cue")
-		writeFile(t, cuePath, `FILE "../outside.flac" WAVE
-TRACK 01 AUDIO
-INDEX 01 00:00:00
-`)
-		if HasSourceFLAC(cuePath, dir) {
-			t.Error("HasSourceFLAC() = true, want false for a FILE reference that escapes dir via ..")
-		}
-	})
-
-	t.Run("symlinked source escapes dir", func(t *testing.T) {
-		outside := t.TempDir()
-		writeFile(t, filepath.Join(outside, "real.flac"), "")
-		dir := t.TempDir()
-		if err := os.Symlink(filepath.Join(outside, "real.flac"), filepath.Join(dir, "album.flac")); err != nil {
-			t.Skipf("symlink not supported: %v", err)
-		}
-		cuePath := filepath.Join(dir, "album.cue")
-		writeFile(t, cuePath, `FILE "album.flac" WAVE
-TRACK 01 AUDIO
-INDEX 01 00:00:00
-`)
-		if HasSourceFLAC(cuePath, dir) {
-			t.Error("HasSourceFLAC() = true, want false for a symlink that escapes dir")
-		}
-	})
-}
-
 func TestCheckSourceFLAC(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -432,6 +309,42 @@ INDEX 01 00:00:00
 			wantErr: ErrSourceMissing,
 		},
 		{
+			name: "source escapes dir via symlink",
+			setup: func(t *testing.T) (string, string) {
+				parent := t.TempDir()
+				outside := filepath.Join(parent, "outside.flac")
+				writeFile(t, outside, "")
+				dir := filepath.Join(parent, "album")
+				if err := os.MkdirAll(dir, 0o755); err != nil {
+					t.Fatalf("MkdirAll: %v", err)
+				}
+				if err := os.Symlink(outside, filepath.Join(dir, "album.flac")); err != nil {
+					t.Fatalf("Symlink: %v", err)
+				}
+				cuePath := filepath.Join(dir, "album.cue")
+				writeFile(t, cuePath, `FILE "album.flac" WAVE
+TRACK 01 AUDIO
+INDEX 01 00:00:00
+`)
+				return cuePath, dir
+			},
+			wantErr: ErrSourceMissing,
+		},
+		{
+			name: "valid single-file wav cue",
+			setup: func(t *testing.T) (string, string) {
+				dir := t.TempDir()
+				writeFile(t, filepath.Join(dir, "album.wav"), "")
+				cuePath := filepath.Join(dir, "album.cue")
+				writeFile(t, cuePath, `FILE "album.wav" WAVE
+TRACK 01 AUDIO
+INDEX 01 00:00:00
+`)
+				return cuePath, dir
+			},
+			wantErr: nil,
+		},
+		{
 			name: "valid single-file cue",
 			setup: func(t *testing.T) (string, string) {
 				dir := t.TempDir()
@@ -461,34 +374,6 @@ INDEX 01 00:00:00
 				t.Errorf("CheckSourceFLAC() = %v, want error matching %v", err, tt.wantErr)
 			}
 		})
-	}
-}
-
-// TestHasSourceFLAC_AgreesWithCheckSourceFLAC pins that HasSourceFLAC's
-// bool result agrees with CheckSourceFLAC's error across every fixture in
-// TestHasSourceFLAC, since HasSourceFLAC is now a one-line wrapper over it.
-func TestHasSourceFLAC_AgreesWithCheckSourceFLAC(t *testing.T) {
-	dir := t.TempDir()
-	writeFile(t, filepath.Join(dir, "album.flac"), "")
-	cuePath := filepath.Join(dir, "album.cue")
-	writeFile(t, cuePath, `FILE "album.flac" WAVE
-TRACK 01 AUDIO
-INDEX 01 00:00:00
-`)
-
-	if got, want := HasSourceFLAC(cuePath, dir), CheckSourceFLAC(cuePath, dir) == nil; got != want {
-		t.Errorf("HasSourceFLAC() = %v, want %v (agreement with CheckSourceFLAC)", got, want)
-	}
-	if !HasSourceFLAC(cuePath, dir) {
-		t.Error("HasSourceFLAC() = false, want true for a valid single-file cue")
-	}
-
-	missingCue := filepath.Join(dir, "does_not_exist.cue")
-	if got, want := HasSourceFLAC(missingCue, dir), CheckSourceFLAC(missingCue, dir) == nil; got != want {
-		t.Errorf("HasSourceFLAC() = %v, want %v (agreement with CheckSourceFLAC)", got, want)
-	}
-	if HasSourceFLAC(missingCue, dir) {
-		t.Error("HasSourceFLAC() = true, want false when the CUE cannot be read")
 	}
 }
 

@@ -68,10 +68,26 @@ func (r reporter) warn(format string, args ...any) {
 	}
 }
 
-func (r reporter) errf(format string, args ...any) {
-	if r.log != nil {
-		r.log(joblog.LevelError, format, args...)
+// maxToolDiagnosticLines caps how much of a failing tool's output is carried
+// into the error (and from there into the job log). The useful diagnostic is
+// always at the tail; the head is progress chatter, and joblog strips the
+// newlines, so an uncapped join renders as one unreadable megaline that is
+// re-serialised on every status poll.
+const maxToolDiagnosticLines = 10
+
+// toolDiagnostic trims a failing tool's output to its last few non-blank
+// lines, prefixing an ellipsis when anything was dropped.
+func toolDiagnostic(out string) string {
+	var kept []string
+	for line := range strings.SplitSeq(out, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			kept = append(kept, line)
+		}
 	}
+	if len(kept) > maxToolDiagnosticLines {
+		kept = append([]string{"…"}, kept[len(kept)-maxToolDiagnosticLines:]...)
+	}
+	return strings.Join(kept, "; ")
 }
 
 // trackFraction formats n/total zero-padded to total's own digit width,
@@ -129,7 +145,7 @@ func Run(ctx context.Context, opts Options) ([]string, error) {
 	totalSteps := trackCount * 2
 
 	r.step(0, totalSteps, "Calculating breakpoints...")
-	breakpointsOut, err := runCuebreakpoints(ctx, utf8Cue, r)
+	breakpointsOut, err := runCuebreakpoints(ctx, utf8Cue)
 	if err != nil {
 		return nil, err
 	}
@@ -165,12 +181,12 @@ func runContext(ctx context.Context, timeout time.Duration, name string, args ..
 	return string(out), err
 }
 
-func runCuebreakpoints(ctx context.Context, utf8Cue string, r reporter) (string, error) {
+func runCuebreakpoints(ctx context.Context, utf8Cue string) (string, error) {
 	out, err := runContext(ctx, breakpointsTimeout, "cuebreakpoints", utf8Cue)
 	if err != nil {
-		trimmed := strings.TrimSpace(out)
-		r.errf("cuebreakpoints failed: %s", trimmed)
-		return "", fmt.Errorf("split: cuebreakpoints failed: %s", trimmed)
+		// No log entry here: Run's error propagates to the job manager, which
+		// logs it once. Logging it here too would double every tool failure.
+		return "", fmt.Errorf("split: cuebreakpoints failed: %s", toolDiagnostic(out))
 	}
 	return out, nil
 }
@@ -229,9 +245,8 @@ func runShnsplit(ctx context.Context, utf8Cue, sourcePath, outDir string, trackC
 		return fmt.Errorf("split: read shnsplit stderr: %w", readErr)
 	}
 	if waitErr != nil {
-		text := strings.Join(lines, "\n")
-		r.errf("shnsplit failed: %s", text)
-		return fmt.Errorf("split: shnsplit failed: %s", text)
+		// As in runCuebreakpoints: the job manager logs the returned error once.
+		return fmt.Errorf("split: shnsplit failed: %s", toolDiagnostic(strings.Join(lines, "\n")))
 	}
 	return nil
 }

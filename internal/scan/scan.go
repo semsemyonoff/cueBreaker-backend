@@ -70,7 +70,7 @@ func FindPairs(inputDir, outputDir string) (Result, error) {
 			if path == inputDir {
 				return err
 			}
-			log.Add(joblog.LevelWarn, "skip %s — unreadable: %s", relOrSelf(inputDir, path), err)
+			log.Add(joblog.LevelWarn, "skip %s — unreadable: %s", relOrSelf(inputDir, path), reason(err))
 			skipped++
 			return nil
 		}
@@ -81,9 +81,12 @@ func FindPairs(inputDir, outputDir string) (Result, error) {
 
 		entries, err := os.ReadDir(path)
 		if err != nil {
-			log.Add(joblog.LevelWarn, "skip %s — unreadable: %s", relOrSelf(inputDir, path), err)
+			log.Add(joblog.LevelWarn, "skip %s — unreadable: %s", relOrSelf(inputDir, path), reason(err))
 			skipped++
-			return nil
+			// WalkDir would otherwise read this directory itself, fail the same
+			// way, and re-enter this callback with the error — logging the line
+			// and bumping skipped a second time. SkipDir says "already handled".
+			return fs.SkipDir
 		}
 
 		var cueFiles, flacFiles []string
@@ -182,6 +185,17 @@ func rejectLevel(err error) joblog.Level {
 		return joblog.LevelInfo
 	}
 	return joblog.LevelWarn
+}
+
+// reason reduces a filesystem error to its underlying cause ("permission
+// denied") without the absolute path *fs.PathError carries. The scan log
+// already names the directory relative to the input root; repeating it as a
+// host-absolute path is noise the SPA has no use for.
+func reason(err error) string {
+	if pathErr, ok := errors.AsType[*fs.PathError](err); ok {
+		return pathErr.Err.Error()
+	}
+	return err.Error()
 }
 
 // relOrSelf returns path relative to base, falling back to path itself if

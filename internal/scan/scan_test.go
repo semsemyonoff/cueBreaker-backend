@@ -251,18 +251,17 @@ func TestFindPairs_Summary(t *testing.T) {
 // cue.CheckSourceFLAC failure reason, asserting the scan log carries the
 // expected level and reason text, and that the directory produces no Pair.
 func TestFindPairs_RejectionReasons(t *testing.T) {
-	const unreadableCue = `not a valid cue sheet, no FILE reference at all`
+	const noFileRefCue = `not a valid cue sheet, no FILE reference at all`
 
 	tests := []struct {
 		name      string
 		cueBody   string
-		seedFiles map[string]string // extra file name -> content, alongside album.cue
 		wantLevel joblog.Level
 		wantText  string
 	}{
 		{
 			name:      "no FILE reference",
-			cueBody:   unreadableCue,
+			cueBody:   noFileRefCue,
 			wantLevel: joblog.LevelWarn,
 			wantText:  "no FILE reference in album.cue",
 		},
@@ -273,7 +272,7 @@ func TestFindPairs_RejectionReasons(t *testing.T) {
 			wantText:  "multi-file cue (already split): album.cue",
 		},
 		{
-			name:    "source is not FLAC/WAV",
+			name: "source is not FLAC/WAV",
 			cueBody: `FILE "album.mp3" WAVE
   TRACK 01 AUDIO
     INDEX 01 00:00:00
@@ -282,7 +281,7 @@ func TestFindPairs_RejectionReasons(t *testing.T) {
 			wantText:  "source is not FLAC/WAV: album.mp3",
 		},
 		{
-			name:    "source file missing",
+			name: "source file missing",
 			cueBody: `FILE "album.flac" WAVE
   TRACK 01 AUDIO
     INDEX 01 00:00:00
@@ -298,9 +297,6 @@ func TestFindPairs_RejectionReasons(t *testing.T) {
 			output := t.TempDir()
 
 			writeFile(t, filepath.Join(input, "Album", "album.cue"), tt.cueBody)
-			for name, content := range tt.seedFiles {
-				writeFile(t, filepath.Join(input, "Album", name), content)
-			}
 
 			result, err := FindPairs(input, output)
 			if err != nil {
@@ -534,4 +530,61 @@ func TestSearch(t *testing.T) {
 			t.Fatalf("len(got) = %d, want 0 (empty query yields no results)", len(got))
 		}
 	})
+}
+
+// TestFindPairs_UnreadableDirectory covers the walk's error branch: an
+// unreadable directory is logged once at warn level with a path relative to
+// the input root, counted once in Summary.Skipped, and does not abort the
+// walk — a sibling album is still found.
+func TestFindPairs_UnreadableDirectory(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: chmod 0o000 does not deny reads")
+	}
+
+	input := t.TempDir()
+	output := t.TempDir()
+
+	// A well-formed album that must survive the unreadable sibling.
+	writeFile(t, filepath.Join(input, "Good", "album.cue"), twoTrackCue)
+	writeFile(t, filepath.Join(input, "Good", "album.flac"), "")
+
+	locked := filepath.Join(input, "Locked")
+	if err := os.MkdirAll(locked, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.Chmod(locked, 0o000); err != nil {
+		t.Fatalf("Chmod: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+
+	result, err := FindPairs(input, output)
+	if err != nil {
+		t.Fatalf("FindPairs: %v", err)
+	}
+
+	if len(result.Pairs) != 1 || result.Pairs[0].Path != "Good" {
+		t.Fatalf("Pairs = %+v, want just the readable Good album", result.Pairs)
+	}
+	if result.Summary.Skipped != 1 {
+		t.Errorf("Summary.Skipped = %d, want 1 (the unreadable directory counted once)", result.Summary.Skipped)
+	}
+
+	var matched []joblog.Entry
+	for _, e := range result.Log {
+		if strings.Contains(e.Text, "Locked") {
+			matched = append(matched, e)
+		}
+	}
+	if len(matched) != 1 {
+		t.Fatalf("log lines mentioning Locked = %+v, want exactly 1", matched)
+	}
+	if matched[0].Level != joblog.LevelWarn {
+		t.Errorf("level = %v, want %v", matched[0].Level, joblog.LevelWarn)
+	}
+	if !strings.Contains(matched[0].Text, "skip Locked — unreadable") {
+		t.Errorf("text = %q, want a relative-path skip line", matched[0].Text)
+	}
+	if strings.Contains(matched[0].Text, input) {
+		t.Errorf("text = %q, want the path relative to the input root, not absolute", matched[0].Text)
+	}
 }

@@ -702,3 +702,29 @@ func TestHandleStatus_NotFound(t *testing.T) {
 		t.Fatalf("status = %d, want 404", rr.Code)
 	}
 }
+
+// TestParseLogSince pins the documented contract: anything that is not a
+// non-negative integer — absent, garbage, or negative — clamps to 0, so a
+// malformed client cursor returns the whole buffer rather than reaching
+// Buffer.Since with a value it would have to defend against.
+func TestParseLogSince(t *testing.T) {
+	tests := []struct {
+		raw  string
+		want int
+	}{
+		{raw: "", want: 0},
+		{raw: "0", want: 0},
+		{raw: "42", want: 42},
+		{raw: "abc", want: 0},
+		{raw: "-5", want: 0},
+		{raw: "3.5", want: 0},
+		{raw: "99999999999999999999", want: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.raw, func(t *testing.T) {
+			if got := parseLogSince(tt.raw); got != tt.want {
+				t.Errorf("parseLogSince(%q) = %d, want %d", tt.raw, got, tt.want)
+			}
+		})
+	}
+}

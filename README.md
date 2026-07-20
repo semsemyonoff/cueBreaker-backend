@@ -18,6 +18,7 @@ cmd/cuebreaker/    entrypoint: load config, build queue + HTTP server, serve SPA
 internal/
   config/          env-based config (CUEBREAKER_*)
   cue/             encoding-detecting CUE reader/parser; FLAC/WAV duration
+  joblog/          bounded, monotonically-sequenced log ring shared by scan + split
   scan/            walk INPUT_DIR for unsplit FLAC+CUE pairs; cover discovery
   split/           orchestrate cuebreakpoints → shnsplit → tagging → cover copy
   job/             serialized split worker + in-memory job registry
@@ -70,6 +71,18 @@ The spec is **hand-written**, so `openapi_test.go` guards it against drift: it r
 path is documented and every documented path is registered. Adding or renaming a route fails
 `go test ./...` until `openapi.yaml` is updated to match — do both in one commit, and keep the
 response schemas mirroring the Go JSON tags.
+
+### Process logs (breaking change)
+
+`GET /api/scan` now returns an **object** — `{items, log, summary}` — not a bare array.
+`GET /api/search` is unchanged and still returns an array. `GET /api/status/{job_id}` gained
+`log` and `log_next`, plus an optional `?log_since=N` cursor for incremental polling: pass back
+the previous response's `log_next` to receive only entries added since. A missing, negative or
+unparseable `log_since` is treated as `0` and returns the whole retained buffer.
+
+Both logs are bounded rings of 500 entries; a scan or split that emits more silently drops its
+oldest lines, so the log is a tail, not a transcript. Any client of `/api/scan` must be updated
+in the same window as the backend.
 
 ## Configuration
 

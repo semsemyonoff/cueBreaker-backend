@@ -588,3 +588,24 @@ func TestFindPairs_UnreadableDirectory(t *testing.T) {
 		t.Errorf("text = %q, want the path relative to the input root, not absolute", matched[0].Text)
 	}
 }
+
+// An unreadable *input root* is fatal, not an empty library: WalkDir turns a
+// fs.SkipDir returned from the root callback into a nil error, so the SkipDir
+// used for unreadable sub-directories must not be reached for the root itself.
+// Otherwise a broken bind mount renders as "no albums found" in the SPA.
+func TestFindPairs_UnreadableInputRoot(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: chmod 0o000 does not deny reads")
+	}
+
+	input := t.TempDir()
+	output := t.TempDir()
+	if err := os.Chmod(input, 0o000); err != nil {
+		t.Fatalf("Chmod: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(input, 0o755) })
+
+	if _, err := FindPairs(input, output); err == nil {
+		t.Fatal("FindPairs = nil error, want the unreadable input root reported as a failure")
+	}
+}

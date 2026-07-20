@@ -81,6 +81,13 @@ func FindPairs(inputDir, outputDir string) (Result, error) {
 
 		entries, err := os.ReadDir(path)
 		if err != nil {
+			// An unreadable input root is fatal here too: WalkDir turns a
+			// SkipDir returned from the root callback into a nil error, so
+			// without this the caller would see a successful empty scan and
+			// the SPA would render a broken bind mount as an empty library.
+			if path == inputDir {
+				return err
+			}
 			log.Add(joblog.LevelWarn, "skip %s — unreadable: %s", relOrSelf(inputDir, path), reason(err))
 			skipped++
 			// WalkDir would otherwise read this directory itself, fail the same

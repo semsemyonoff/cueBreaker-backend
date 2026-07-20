@@ -15,8 +15,9 @@ FLAC+CUE album splitter, Go backend. A single static binary serving a JSON API u
   `FILE` refs, non-FLAC/WAV, missing source) — compare with `errors.Is` against the exported
   sentinels rather than matching on message text.
 - `internal/joblog` — bounded, monotonically-sequenced log ring (`Buffer`, cap 500), shared by
-  scan and split. `Since(seq)` survives ring overflow without skipping or replaying a line; a nil
-  `*Buffer` is a safe no-op. Imports nothing project-local.
+  scan and split. `Since(seq)` never replays a line the caller already has; on ring overflow the
+  oldest entries are dropped silently, so a cursor may jump forward. A nil `*Buffer` is a safe
+  no-op. Imports nothing project-local.
 - `internal/scan` — walk `INPUT_DIR` for single-file FLAC+CUE pairs; already-split status; cover
   art. `FindPairs` returns a `Result{Pairs, Log, Summary}`: one log line per rejected directory
   (only when it held a `.cue`), plus a walk summary. `GET /api/scan` mirrors this as an object
@@ -24,7 +25,10 @@ FLAC+CUE album splitter, Go backend. A single static binary serving a JSON API u
   line's level comes from `rejectLevel`: `info` for expected steady state
   (`ErrMultiFileReference`, `ErrNotFLACOrWAV`), `warn` for anything suggesting the directory or
   CUE is actually broken — extend it when adding a `cue` sentinel. An unreadable directory
-  returns `fs.SkipDir` so `WalkDir` does not re-report it and double-count `Summary.Skipped`.
+  returns `fs.SkipDir` so `WalkDir` does not re-report it and double-count `Summary.Skipped` —
+  but an unreadable *input root* is returned as an error instead, since `WalkDir` swallows a
+  `SkipDir` from the root callback and a broken bind mount would otherwise read as an empty
+  library rather than a scan failure.
 - `internal/split` — `cuebreakpoints` → `shnsplit` (stderr → progress) → tagging (`cueprint` +
   `metaflac`) → pregap removal → cover copy. A `reporter` (built from `Options.Progress` +
   `Options.Log`) is threaded through `runShnsplit`/`finishSplit` and emits synthesized pipeline

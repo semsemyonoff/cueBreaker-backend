@@ -13,12 +13,22 @@ import (
 	"git.horn/cueBreaker/backend/internal/server/openapi"
 )
 
+// BuildInfo is the version payload served at GET /api/version: cueBreaker's
+// own version plus the versions of the external tools it splits with.
+type BuildInfo struct {
+	// App is the link-time application version ("dev" in a dev build).
+	App string `json:"version"`
+	// Shntool is the installed shntool version, omitted when it could not
+	// be determined (see split.ShntoolVersion).
+	Shntool string `json:"shntool_version,omitempty"`
+}
+
 // Server implements http.Handler for cueBreaker's JSON API.
 type Server struct {
-	cfg     config.Config
-	jobs    *job.Manager
-	version string
-	logger  *slog.Logger
+	cfg    config.Config
+	jobs   *job.Manager
+	info   BuildInfo
+	logger *slog.Logger
 
 	// realInputDir is cfg.InputDir with symlinks resolved, computed once at
 	// construction; every path-security check below is relative to it.
@@ -28,9 +38,9 @@ type Server struct {
 	mux    *http.ServeMux
 }
 
-// New builds a Server for cfg, backed by jobs and reporting version at
+// New builds a Server for cfg, backed by jobs and reporting info at
 // GET /api/version. cfg.InputDir must exist and be resolvable.
-func New(cfg config.Config, jobs *job.Manager, version string, logger *slog.Logger) (*Server, error) {
+func New(cfg config.Config, jobs *job.Manager, info BuildInfo, logger *slog.Logger) (*Server, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -48,7 +58,7 @@ func New(cfg config.Config, jobs *job.Manager, version string, logger *slog.Logg
 	s := &Server{
 		cfg:          cfg,
 		jobs:         jobs,
-		version:      version,
+		info:         info,
 		logger:       logger,
 		realInputDir: realInputDir,
 		static:       static,

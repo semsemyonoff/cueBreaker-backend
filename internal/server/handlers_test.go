@@ -81,7 +81,7 @@ func testServer(t *testing.T, splitFn job.SplitFunc) (*Server, string, string) {
 	cfg := config.Config{InputDir: inputDir, OutputDir: outputDir, Port: 5000}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	s, err := New(cfg, mgr, "test-version", logger)
+	s, err := New(cfg, mgr, BuildInfo{App: "test-version", Shntool: "9.9.9"}, logger)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -183,6 +183,23 @@ func TestHandleVersion(t *testing.T) {
 	decodeJSON(t, rr, &body)
 	if body["version"] != "test-version" {
 		t.Fatalf("version = %q, want test-version", body["version"])
+	}
+	if body["shntool_version"] != "9.9.9" {
+		t.Fatalf("shntool_version = %q, want 9.9.9", body["shntool_version"])
+	}
+}
+
+func TestHandleVersion_OmitsUnknownShntool(t *testing.T) {
+	s, _, _ := testServer(t, nil)
+	s.info.Shntool = ""
+
+	rr := httptest.NewRecorder()
+	s.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/version", nil))
+
+	var body map[string]string
+	decodeJSON(t, rr, &body)
+	if _, ok := body["shntool_version"]; ok {
+		t.Fatalf("body = %+v, want no shntool_version key", body)
 	}
 }
 
@@ -359,7 +376,7 @@ func TestHandleSplit_RefusedWhenManagerStopped(t *testing.T) {
 		return nil, nil
 	})
 	cfg := config.Config{InputDir: inputDir, OutputDir: t.TempDir(), Port: 5000}
-	s, err := New(cfg, mgr, "test-version", slog.New(slog.NewTextHandler(io.Discard, nil)))
+	s, err := New(cfg, mgr, BuildInfo{App: "test-version", Shntool: "9.9.9"}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

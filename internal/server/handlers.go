@@ -203,7 +203,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"version": s.version})
+	writeJSON(w, http.StatusOK, s.info)
 }
 
 // decodePathRequest decodes a pathRequest JSON body, writing a 400 response

@@ -190,11 +190,11 @@ paths:
   /api/version:
     get:
       tags: [Meta]
-      summary: Report the backend's version
+      summary: Report the backend's and the splitter tools' versions
       operationId: version
       responses:
         "200":
-          description: The running backend's version string.
+          description: The running backend's version, plus the splitter tools' versions.
           content:
             application/json:
               schema:
@@ -404,10 +404,17 @@ components:
 
     Version:
       type: object
+      description: The running backend's version, plus the splitter tools' versions.
       required: [version]
       properties:
         version:
           type: string
+          description: cueBreaker's own version; `dev` in a development build.
+        shntool_version:
+          type: string
+          description: |
+            The installed shntool's version, as reported by `shntool -v`.
+            Omitted when shntool is missing or its banner was unrecognizable.
 
     Error:
       type: object

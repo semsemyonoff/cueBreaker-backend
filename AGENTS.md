@@ -53,5 +53,8 @@ Also exposed in the DWE workspace as `dwe cmd backend.{run,test,lint}`.
 - External tools: `shnsplit` (shntool), `cuebreakpoints`/`cueprint` (cuetools), `metaflac` (flac).
 - Env vars: `CUEBREAKER_INPUT_DIR` (`/input`), `CUEBREAKER_OUTPUT_DIR` (`/output`),
   `CUEBREAKER_PORT` (`5000`). Version via `-ldflags "-X main.version=$APP_VERSION"`, at `GET /api/version`.
+- `GET /api/version` reports `server.BuildInfo`: the app's own version plus `shntool_version`,
+  probed once at startup by `split.ShntoolVersion` (`shntool -v`) and omitted when unknown — a
+  missing tool is an absent version, never a startup error.
 
 > `CLAUDE.md` is a symlink to this file. Edit `AGENTS.md`.

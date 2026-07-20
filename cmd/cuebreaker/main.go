@@ -13,6 +13,7 @@ import (
 	"git.horn/cueBreaker/backend/internal/config"
 	"git.horn/cueBreaker/backend/internal/job"
 	"git.horn/cueBreaker/backend/internal/server"
+	"git.horn/cueBreaker/backend/internal/split"
 )
 
 var version = "dev"
@@ -27,19 +28,24 @@ func main() {
 		os.Exit(1)
 	}
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	// Probed once here rather than per request: the splitter tools cannot
+	// change under a running process.
+	info := server.BuildInfo{App: version, Shntool: split.ShntoolVersion(ctx)}
+
 	slog.Info("starting cueBreaker",
-		"version", version,
+		"version", info.App,
+		"shntool", info.Shntool,
 		"input_dir", cfg.InputDir,
 		"output_dir", cfg.OutputDir,
 		"port", cfg.Port,
 	)
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
 	jobs := job.NewManager(ctx, nil)
 
-	srv, err := server.New(cfg, jobs, version, logger)
+	srv, err := server.New(cfg, jobs, info, logger)
 	if err != nil {
 		slog.Error("failed to build server", "error", err)
 		os.Exit(1)

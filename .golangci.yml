@@ -36,4 +36,4 @@ formatters:
   settings:
     goimports:
       local-prefixes:
-        - git.horn/cueBreaker/backend
+        - github.com/semsemyonoff/cueBreaker-backend

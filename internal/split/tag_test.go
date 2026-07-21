@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"git.horn/cueBreaker/backend/internal/cue"
+	"github.com/semsemyonoff/cueBreaker-backend/internal/cue"
 )
 
 func TestBuildTags(t *testing.T) {
@@ -165,9 +165,9 @@ func TestFinishSplit(t *testing.T) {
 	album := cue.Album{Genre: "Rock", Date: "2020", Tracks: []cue.Track{{Number: 1}, {Number: 2}}}
 
 	var progressCalls []string
-	result, err := finishSplit(context.Background(), utf8Cue, album, sourceDir, outDir, 2, 4, func(current, total int, detail string) {
+	result, err := finishSplit(context.Background(), utf8Cue, album, sourceDir, outDir, 2, 4, reporter{progress: func(current, total int, detail string) {
 		progressCalls = append(progressCalls, detail)
-	})
+	}})
 	if err != nil {
 		t.Fatalf("finishSplit: %v", err)
 	}
@@ -247,7 +247,7 @@ func TestFinishSplit_PregapRemovalFails(t *testing.T) {
 	}
 
 	album := cue.Album{Tracks: []cue.Track{{Number: 1}, {Number: 2}}}
-	_, err := finishSplit(context.Background(), utf8Cue, album, sourceDir, outDir, 2, 4, nil)
+	_, err := finishSplit(context.Background(), utf8Cue, album, sourceDir, outDir, 2, 4, reporter{})
 	if err == nil || !strings.Contains(err.Error(), "remove pregap file") {
 		t.Fatalf("finishSplit() error = %v, want remove-pregap-file failure", err)
 	}
@@ -268,7 +268,7 @@ func TestFinishSplit_CoverCopyFails(t *testing.T) {
 	}
 
 	album := cue.Album{Tracks: []cue.Track{{Number: 1}, {Number: 2}}}
-	_, err := finishSplit(context.Background(), utf8Cue, album, sourceDir, outDir, 2, 4, nil)
+	_, err := finishSplit(context.Background(), utf8Cue, album, sourceDir, outDir, 2, 4, reporter{})
 	if err == nil || !strings.Contains(err.Error(), "copy cover") {
 		t.Fatalf("finishSplit() error = %v, want copy-cover failure", err)
 	}
@@ -276,7 +276,7 @@ func TestFinishSplit_CoverCopyFails(t *testing.T) {
 
 func TestFinishSplit_MissingOutDir(t *testing.T) {
 	sourceDir := t.TempDir()
-	_, err := finishSplit(context.Background(), filepath.Join(sourceDir, "album.cue"), cue.Album{}, sourceDir, filepath.Join(sourceDir, "missing"), 0, 0, nil)
+	_, err := finishSplit(context.Background(), filepath.Join(sourceDir, "album.cue"), cue.Album{}, sourceDir, filepath.Join(sourceDir, "missing"), 0, 0, reporter{})
 	if err == nil {
 		t.Fatal("finishSplit() error = nil, want error for missing outDir")
 	}

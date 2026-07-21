@@ -10,10 +10,10 @@ import (
 	"os/signal"
 	"syscall"
 
-	"git.horn/cueBreaker/backend/internal/config"
-	"git.horn/cueBreaker/backend/internal/job"
-	"git.horn/cueBreaker/backend/internal/server"
-	"git.horn/cueBreaker/backend/internal/split"
+	"github.com/semsemyonoff/cueBreaker-backend/internal/config"
+	"github.com/semsemyonoff/cueBreaker-backend/internal/job"
+	"github.com/semsemyonoff/cueBreaker-backend/internal/server"
+	"github.com/semsemyonoff/cueBreaker-backend/internal/split"
 )
 
 var version = "dev"

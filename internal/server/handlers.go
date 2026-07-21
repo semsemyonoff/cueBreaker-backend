@@ -6,12 +6,14 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
-	"git.horn/cueBreaker/backend/internal/cue"
-	"git.horn/cueBreaker/backend/internal/job"
-	"git.horn/cueBreaker/backend/internal/scan"
-	"git.horn/cueBreaker/backend/internal/split"
+	"github.com/semsemyonoff/cueBreaker-backend/internal/cue"
+	"github.com/semsemyonoff/cueBreaker-backend/internal/job"
+	"github.com/semsemyonoff/cueBreaker-backend/internal/joblog"
+	"github.com/semsemyonoff/cueBreaker-backend/internal/scan"
+	"github.com/semsemyonoff/cueBreaker-backend/internal/split"
 )
 
 // pathRequest is the shared JSON body of the preview and split endpoints: a
@@ -34,22 +36,24 @@ type previewResponse struct {
 
 // statusResponse is the wire shape of a job's current state.
 type statusResponse struct {
-	Status          job.Status `json:"status"`
-	Message         string     `json:"message"`
-	ResultFiles     []string   `json:"result_files"`
-	ProgressCurrent int        `json:"progress_current"`
-	ProgressTotal   int        `json:"progress_total"`
-	ProgressDetail  string     `json:"progress_detail"`
+	Status          job.Status     `json:"status"`
+	Message         string         `json:"message"`
+	ResultFiles     []string       `json:"result_files"`
+	ProgressCurrent int            `json:"progress_current"`
+	ProgressTotal   int            `json:"progress_total"`
+	ProgressDetail  string         `json:"progress_detail"`
+	Log             []joblog.Entry `json:"log"`
+	LogNext         int            `json:"log_next"`
 }
 
 func (s *Server) handleScan(w http.ResponseWriter, r *http.Request) {
-	pairs, err := scan.FindPairs(s.cfg.InputDir, s.cfg.OutputDir)
+	result, err := scan.FindPairs(s.cfg.InputDir, s.cfg.OutputDir)
 	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.logger.Info("scan complete", "pairs", len(pairs))
-	writeJSON(w, http.StatusOK, pairs)
+	s.logger.Info("scan complete", "pairs", len(result.Pairs))
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
@@ -59,12 +63,12 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pairs, err := scan.FindPairs(s.cfg.InputDir, s.cfg.OutputDir)
+	result, err := scan.FindPairs(s.cfg.InputDir, s.cfg.OutputDir)
 	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, scan.Search(pairs, q))
+	writeJSON(w, http.StatusOK, scan.Search(result.Pairs, q))
 }
 
 func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
@@ -192,6 +196,12 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		resultFiles = []string{}
 	}
 
+	logSince := parseLogSince(r.URL.Query().Get("log_since"))
+	entries, logNext := state.Log.Since(logSince)
+	if entries == nil {
+		entries = []joblog.Entry{}
+	}
+
 	writeJSON(w, http.StatusOK, statusResponse{
 		Status:          state.Status,
 		Message:         state.Message,
@@ -199,7 +209,23 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		ProgressCurrent: state.ProgressCurrent,
 		ProgressTotal:   state.ProgressTotal,
 		ProgressDetail:  state.ProgressDetail,
+		Log:             entries,
+		LogNext:         logNext,
 	})
+}
+
+// parseLogSince parses the log_since query parameter into a cursor, treating
+// a missing, negative, or unparseable value as 0 so the first request after
+// a page reload is self-sufficient and returns the whole retained buffer.
+func parseLogSince(raw string) int {
+	if raw == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 0 {
+		return 0
+	}
+	return n
 }
 
 func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {

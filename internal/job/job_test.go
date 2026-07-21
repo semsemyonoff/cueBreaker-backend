@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"git.horn/cueBreaker/backend/internal/split"
+	"github.com/semsemyonoff/cueBreaker-backend/internal/joblog"
+	"github.com/semsemyonoff/cueBreaker-backend/internal/split"
 )
 
 func waitForStatus(t *testing.T, m *Manager, id string, want Status, timeout time.Duration) State {
@@ -179,11 +181,27 @@ func TestManager_ErrorMapping(t *testing.T) {
 		return nil, wantErr
 	}
 	m := NewManager(context.Background(), splitFn)
-	m.Enqueue("id", split.Options{})
+	if err := m.Enqueue("id", split.Options{}); err != nil {
+		t.Fatalf("Enqueue() = %v, want nil", err)
+	}
 
 	s := waitForStatus(t, m, "id", StatusError, time.Second)
 	if s.Message != wantErr.Error() {
 		t.Fatalf("Message = %q, want %q", s.Message, wantErr.Error())
+	}
+
+	// split.Run logs nothing for a failure it cannot attribute to a tool, so
+	// the manager must put the reason in the log itself — the UI auto-expands
+	// this panel precisely on status=error.
+	entries, _ := s.Log.Since(0)
+	var found bool
+	for _, e := range entries {
+		if e.Level == joblog.LevelError && strings.Contains(e.Text, wantErr.Error()) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("Log entries = %v, want an error entry carrying %q", entries, wantErr)
 	}
 }
 
@@ -192,7 +210,9 @@ func TestManager_PanicContained(t *testing.T) {
 		panic("unexpected shnsplit output")
 	}
 	m := NewManager(context.Background(), splitFn)
-	m.Enqueue("boom", split.Options{})
+	if err := m.Enqueue("boom", split.Options{}); err != nil {
+		t.Fatalf("Enqueue() = %v, want nil", err)
+	}
 
 	// The panicking job is marked errored rather than crashing the worker,
 	// and a subsequent job on the same manager still runs to completion.
@@ -398,6 +418,147 @@ func TestManager_Get_NotFound(t *testing.T) {
 	})
 	if _, ok := m.Get("missing"); ok {
 		t.Fatalf("Get(missing) ok = true, want false")
+	}
+}
+
+func TestManager_Log_CompletedRunReadable(t *testing.T) {
+	splitFn := func(ctx context.Context, opts split.Options) ([]string, error) {
+		opts.Log(joblog.LevelInfo, "cue parsed: 4 tracks")
+		opts.Log(joblog.LevelWarn, "removed pregap file: 00 - pregap.flac")
+		return []string{"01 - Track.flac"}, nil
+	}
+	m := NewManager(context.Background(), splitFn)
+
+	if err := m.Enqueue("id", split.Options{}); err != nil {
+		t.Fatalf("Enqueue() = %v, want nil", err)
+	}
+	s := waitForStatus(t, m, "id", StatusDone, time.Second)
+
+	entries, _ := s.Log.Since(0)
+	if len(entries) < 3 {
+		t.Fatalf("Log entries = %v, want at least 3 (starting split + 2 emitted)", entries)
+	}
+	if entries[0].Text != "starting split" {
+		t.Fatalf("entries[0].Text = %q, want %q", entries[0].Text, "starting split")
+	}
+	var sawParsed, sawPregap bool
+	for _, e := range entries {
+		switch e.Text {
+		case "cue parsed: 4 tracks":
+			sawParsed = e.Level == joblog.LevelInfo
+		case "removed pregap file: 00 - pregap.flac":
+			sawPregap = e.Level == joblog.LevelWarn
+		}
+	}
+	if !sawParsed || !sawPregap {
+		t.Fatalf("Log entries = %v, missing expected lines", entries)
+	}
+}
+
+func TestManager_Log_RerunStartsEmpty(t *testing.T) {
+	var runs atomic.Int32
+	splitFn := func(ctx context.Context, opts split.Options) ([]string, error) {
+		if runs.Add(1) == 1 {
+			opts.Log(joblog.LevelInfo, "first run line")
+			return []string{"01 - Old.flac"}, nil
+		}
+		return []string{"01 - New.flac"}, nil
+	}
+	m := NewManager(context.Background(), splitFn)
+
+	if err := m.Enqueue("id", split.Options{}); err != nil {
+		t.Fatalf("Enqueue() = %v, want nil", err)
+	}
+	waitForStatus(t, m, "id", StatusDone, time.Second)
+
+	if err := m.Enqueue("id", split.Options{}); err != nil {
+		t.Fatalf("Enqueue() rerun = %v, want nil", err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for {
+		s, _ := m.Get("id")
+		if s.Status == StatusDone && len(s.ResultFiles) == 1 && s.ResultFiles[0] == "01 - New.flac" {
+			entries, _ := s.Log.Since(0)
+			for _, e := range entries {
+				if e.Text == "first run line" {
+					t.Fatalf("Log entries = %v, want no carryover from the first run", entries)
+				}
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("job = %+v, want the second run to complete within 1s", s)
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+}
+
+func TestManager_Log_RejectedEnqueueKeepsPriorLog(t *testing.T) {
+	release := make(chan struct{})
+	var runs atomic.Int32
+	splitFn := func(ctx context.Context, opts split.Options) ([]string, error) {
+		if runs.Add(1) > 1 {
+			<-release
+		}
+		opts.Log(joblog.LevelInfo, "done-album line")
+		return []string{"01 - Track.flac"}, nil
+	}
+	m := NewManager(t.Context(), splitFn)
+	defer close(release)
+
+	if err := m.Enqueue("done-album", split.Options{}); err != nil {
+		t.Fatalf("Enqueue(done-album) = %v, want nil", err)
+	}
+	waitForStatus(t, m, "done-album", StatusDone, 2*time.Second)
+	before, _ := m.Get("done-album")
+	beforeEntries, _ := before.Log.Since(0)
+	if len(beforeEntries) == 0 {
+		t.Fatal("done-album log = empty, want entries from its completed run")
+	}
+
+	if err := m.Enqueue("occupier", split.Options{}); err != nil {
+		t.Fatalf("Enqueue(occupier) = %v, want nil", err)
+	}
+	waitForStatus(t, m, "occupier", StatusSplitting, 2*time.Second)
+	for i := range cap(m.queue) {
+		if err := m.Enqueue(fmt.Sprintf("filler-%d", i), split.Options{}); err != nil {
+			t.Fatalf("Enqueue(filler-%d) = %v, want nil", i, err)
+		}
+	}
+
+	if err := m.Enqueue("done-album", split.Options{}); !errors.Is(err, ErrQueueFull) {
+		t.Fatalf("Enqueue(done-album) re-split = %v, want ErrQueueFull", err)
+	}
+
+	after, ok := m.Get("done-album")
+	if !ok {
+		t.Fatal("Get(done-album) = not found; a refused re-split must not delete the completed run")
+	}
+	afterEntries, _ := after.Log.Since(0)
+	if len(afterEntries) != len(beforeEntries) {
+		t.Fatalf("Log entries after refused re-split = %v, want unchanged %v", afterEntries, beforeEntries)
+	}
+}
+
+func TestManager_Log_PanicRecordedAsError(t *testing.T) {
+	splitFn := func(ctx context.Context, opts split.Options) ([]string, error) {
+		panic("unexpected shnsplit output")
+	}
+	m := NewManager(context.Background(), splitFn)
+	if err := m.Enqueue("boom", split.Options{}); err != nil {
+		t.Fatalf("Enqueue() = %v, want nil", err)
+	}
+
+	s := waitForStatus(t, m, "boom", StatusError, time.Second)
+	entries, _ := s.Log.Since(0)
+	var sawPanic bool
+	for _, e := range entries {
+		if e.Level == joblog.LevelError && e.Text == "split panicked: unexpected shnsplit output" {
+			sawPanic = true
+		}
+	}
+	if !sawPanic {
+		t.Fatalf("Log entries = %v, want an error entry with the panic text", entries)
 	}
 }
 

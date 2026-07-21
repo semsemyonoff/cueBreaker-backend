@@ -8,7 +8,7 @@ import (
 	"path"
 	"strings"
 
-	"git.horn/cueBreaker/backend/web"
+	"github.com/semsemyonoff/cueBreaker-backend/web"
 )
 
 // newStaticHandler serves the embedded SPA build (web.Dist), falling back to

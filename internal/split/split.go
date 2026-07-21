@@ -5,11 +5,14 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
-	"git.horn/cueBreaker/backend/internal/cue"
+	"github.com/semsemyonoff/cueBreaker-backend/internal/cue"
+	"github.com/semsemyonoff/cueBreaker-backend/internal/joblog"
 )
 
 // breakpointsTimeout bounds how long cuebreakpoints may run, mirroring
@@ -21,6 +24,9 @@ const breakpointsTimeout = 30 * time.Second
 // the combined split+tag step count (2 * track count).
 type ProgressFunc func(current, total int, detail string)
 
+// LogFunc receives synthesized pipeline events as the split runs.
+type LogFunc func(level joblog.Level, format string, args ...any)
+
 // Options configures a split run.
 type Options struct {
 	// CuePath is the path to the original (possibly non-UTF-8) CUE file.
@@ -31,6 +37,77 @@ type Options struct {
 	OutDir string
 	// Progress, if non-nil, is called as the pipeline advances.
 	Progress ProgressFunc
+	// Log, if non-nil, is called with synthesized pipeline events.
+	Log LogFunc
+}
+
+// reporter bundles the progress and log callbacks threaded through the
+// split pipeline so runShnsplit and finishSplit take one value instead of
+// a growing parameter list. Each method is a no-op when its underlying
+// callback is nil.
+type reporter struct {
+	progress ProgressFunc
+	log      LogFunc
+}
+
+func (r reporter) step(current, total int, detail string) {
+	if r.progress != nil {
+		r.progress(current, total, detail)
+	}
+}
+
+func (r reporter) info(format string, args ...any) {
+	if r.log != nil {
+		r.log(joblog.LevelInfo, format, args...)
+	}
+}
+
+func (r reporter) warn(format string, args ...any) {
+	if r.log != nil {
+		r.log(joblog.LevelWarn, format, args...)
+	}
+}
+
+// maxToolDiagnosticLines caps how much of a failing tool's output is carried
+// into the error (and from there into the job log). The useful diagnostic is
+// always at the tail; the head is progress chatter, and joblog strips the
+// newlines, so an uncapped join renders as one unreadable megaline that is
+// re-serialised on every status poll.
+const maxToolDiagnosticLines = 10
+
+// toolDiagnostic trims a failing tool's output to its last few non-blank
+// lines, prefixing an ellipsis when anything was dropped.
+func toolDiagnostic(out string) string {
+	var kept []string
+	for line := range strings.SplitSeq(out, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			kept = append(kept, line)
+		}
+	}
+	if len(kept) > maxToolDiagnosticLines {
+		kept = append([]string{"…"}, kept[len(kept)-maxToolDiagnosticLines:]...)
+	}
+	return strings.Join(kept, "; ")
+}
+
+// trackFraction formats n/total zero-padded to total's own digit width,
+// e.g. trackFraction(3, 14) is "03/14".
+func trackFraction(n, total int) string {
+	width := len(strconv.Itoa(total))
+	return fmt.Sprintf("%0*d/%0*d", width, n, width, total)
+}
+
+// countNonEmptyLines counts non-blank lines in s, used to turn
+// cuebreakpoints' stdout into a breakpoint count without depending on its
+// exact format.
+func countNonEmptyLines(s string) int {
+	n := 0
+	for line := range strings.SplitSeq(s, "\n") {
+		if strings.TrimSpace(line) != "" {
+			n++
+		}
+	}
+	return n
 }
 
 // Run executes the full split pipeline: it resolves the source audio file,
@@ -40,15 +117,20 @@ type Options struct {
 // track, removes the discarded pregap file, and copies a discovered cover
 // into OutDir. It returns the sorted list of resulting FLAC file names.
 func Run(ctx context.Context, opts Options) ([]string, error) {
+	r := reporter{progress: opts.Progress, log: opts.Log}
+
 	album, err := cue.Parse(opts.CuePath)
 	if err != nil {
 		return nil, fmt.Errorf("split: parse cue: %w", err)
 	}
+	trackCount := len(album.Tracks)
+	r.info("cue parsed: %d tracks · %q", trackCount, album.Title)
 
 	sourcePath, ok := cue.SourceFLAC(album, opts.SourceDir)
 	if !ok {
 		return nil, fmt.Errorf("split: no source FLAC/WAV found in %s", opts.SourceDir)
 	}
+	r.info("source: %s", filepath.Base(sourcePath))
 
 	utf8Cue, err := cue.MakeUTF8Cue(opts.CuePath)
 	if err != nil {
@@ -60,33 +142,29 @@ func Run(ctx context.Context, opts Options) ([]string, error) {
 		return nil, fmt.Errorf("split: create output dir: %w", err)
 	}
 
-	trackCount := len(album.Tracks)
 	totalSteps := trackCount * 2
 
-	reportProgress(opts.Progress, 0, totalSteps, "Calculating breakpoints...")
-	if err := runCuebreakpoints(ctx, utf8Cue); err != nil {
+	r.step(0, totalSteps, "Calculating breakpoints...")
+	breakpointsOut, err := runCuebreakpoints(ctx, utf8Cue)
+	if err != nil {
+		return nil, err
+	}
+	r.info("cuebreakpoints: %d breakpoints", countNonEmptyLines(breakpointsOut))
+
+	r.step(0, totalSteps, "Splitting FLAC...")
+	if err := runShnsplit(ctx, utf8Cue, sourcePath, opts.OutDir, trackCount, totalSteps, r); err != nil {
 		return nil, err
 	}
 
-	reportProgress(opts.Progress, 0, totalSteps, "Splitting FLAC...")
-	if err := runShnsplit(ctx, utf8Cue, sourcePath, opts.OutDir, trackCount, totalSteps, opts.Progress); err != nil {
-		return nil, err
-	}
-
-	reportProgress(opts.Progress, trackCount, totalSteps, "Splitting complete, tagging...")
-	result, err := finishSplit(ctx, utf8Cue, album, opts.SourceDir, opts.OutDir, trackCount, totalSteps, opts.Progress)
+	r.step(trackCount, totalSteps, "Splitting complete, tagging...")
+	result, err := finishSplit(ctx, utf8Cue, album, opts.SourceDir, opts.OutDir, trackCount, totalSteps, r)
 	if err != nil {
 		return nil, err
 	}
 
-	reportProgress(opts.Progress, totalSteps, totalSteps, "Complete")
+	r.step(totalSteps, totalSteps, "Complete")
+	r.info("done: %d files", len(result))
 	return result, nil
-}
-
-func reportProgress(progress ProgressFunc, current, total int, detail string) {
-	if progress != nil {
-		progress(current, total, detail)
-	}
 }
 
 // runContext runs name with args under ctx, bounded additionally by
@@ -103,18 +181,20 @@ func runContext(ctx context.Context, timeout time.Duration, name string, args ..
 	return string(out), err
 }
 
-func runCuebreakpoints(ctx context.Context, utf8Cue string) error {
+func runCuebreakpoints(ctx context.Context, utf8Cue string) (string, error) {
 	out, err := runContext(ctx, breakpointsTimeout, "cuebreakpoints", utf8Cue)
 	if err != nil {
-		return fmt.Errorf("split: cuebreakpoints failed: %s", strings.TrimSpace(out))
+		// No log entry here: Run's error propagates to the job manager, which
+		// logs it once. Logging it here too would double every tool failure.
+		return "", fmt.Errorf("split: cuebreakpoints failed: %s", toolDiagnostic(out))
 	}
-	return nil
+	return out, nil
 }
 
 // runShnsplit runs shnsplit directly under ctx (no additional timeout, so
 // a long split is only bounded by the job's own cancellation), streaming
 // its stderr line-by-line into progress via streamShnsplitProgress.
-func runShnsplit(ctx context.Context, utf8Cue, sourcePath, outDir string, trackCount, totalSteps int, progress ProgressFunc) error {
+func runShnsplit(ctx context.Context, utf8Cue, sourcePath, outDir string, trackCount, totalSteps int, r reporter) error {
 	cmd := exec.CommandContext(ctx, "shnsplit",
 		"-f", utf8Cue,
 		"-O", "always",
@@ -145,8 +225,19 @@ func runShnsplit(ctx context.Context, utf8Cue, sourcePath, outDir string, trackC
 		return fmt.Errorf("split: shnsplit start: %w", err)
 	}
 
+	realTrackNum := 0
 	lines, readErr := streamShnsplitProgress(stderr, trackCount, func(step splitStep) {
-		reportProgress(progress, step.current, totalSteps, "Splitting: "+step.detail)
+		r.step(step.current, totalSteps, "Splitting: "+step.detail)
+		if isPregapFile(step.detail) {
+			r.info("pregap → %s", step.detail)
+		} else {
+			// step.current is shared with the pregap line and capped at
+			// trackCount, so it cannot be used as this track's own number
+			// (the pregap line would otherwise consume a slot and shift or
+			// duplicate the real numbering). Count real tracks separately.
+			realTrackNum++
+			r.info("track %s → %s", trackFraction(realTrackNum, trackCount), step.detail)
+		}
 	})
 
 	waitErr := cmd.Wait()
@@ -154,7 +245,8 @@ func runShnsplit(ctx context.Context, utf8Cue, sourcePath, outDir string, trackC
 		return fmt.Errorf("split: read shnsplit stderr: %w", readErr)
 	}
 	if waitErr != nil {
-		return fmt.Errorf("split: shnsplit failed: %s", strings.Join(lines, "\n"))
+		// As in runCuebreakpoints: the job manager logs the returned error once.
+		return fmt.Errorf("split: shnsplit failed: %s", toolDiagnostic(strings.Join(lines, "\n")))
 	}
 	return nil
 }

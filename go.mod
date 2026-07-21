@@ -1,4 +1,4 @@
-module git.horn/cueBreaker/backend
+module github.com/semsemyonoff/cueBreaker-backend
 
 go 1.26.4
 

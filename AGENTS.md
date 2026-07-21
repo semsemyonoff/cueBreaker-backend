@@ -1,9 +1,12 @@
 # cueBreaker — backend
 
 FLAC+CUE album splitter, Go backend. A single static binary serving a JSON API under
-`/api/*` and the embedded SPA on `/`. Part of a three-repo product (`backend`, `frontend`,
-`workspace`) mirroring the sibling `beetDeck` / `AlbFetcharr` orgs. Module path:
-`git.horn/cueBreaker/backend`.
+`/api/*` and the embedded SPA on `/`. Module path:
+`github.com/semsemyonoff/cueBreaker-backend`.
+
+This repo is the backend alone. The React SPA is a separate repository, consumed only as
+built static assets in `web/dist/`; there is no shared code and no shared filesystem. The
+production image that bundles the two is assembled in the cueBreaker deployment repo.
 
 ## Layout
 
@@ -11,17 +14,45 @@ FLAC+CUE album splitter, Go backend. A single static binary serving a JSON API u
 - `internal/config` — `CUEBREAKER_*` env config.
 - `internal/cue` — encoding-detecting CUE reader; parser (album meta + tracks, `INDEX 01`
   as `MM:SS:FF` + numeric `StartSeconds`); UTF-8 temp-copy; FLAC/WAV duration.
-- `internal/scan` — walk `INPUT_DIR` for single-file FLAC+CUE pairs; already-split status; cover art.
+  `CheckSourceFLAC` returns a distinct error per rejection reason (unreadable, zero/multiple
+  `FILE` refs, non-FLAC/WAV, missing source) — compare with `errors.Is` against the exported
+  sentinels rather than matching on message text.
+- `internal/joblog` — bounded, monotonically-sequenced log ring (`Buffer`, cap 500), shared by
+  scan and split. `Since(seq)` never replays a line the caller already has; on ring overflow the
+  oldest entries are dropped silently, so a cursor may jump forward. A nil `*Buffer` is a safe
+  no-op. Imports nothing project-local.
+- `internal/scan` — walk `INPUT_DIR` for single-file FLAC+CUE pairs; already-split status; cover
+  art. `FindPairs` returns a `Result{Pairs, Log, Summary}`: one log line per rejected directory
+  (only when it held a `.cue`), plus a walk summary. `GET /api/scan` mirrors this as an object
+  (`{items, log, summary}`), not a bare array — `GET /api/search` stays an array. The rejection
+  line's level comes from `rejectLevel`: `info` for expected steady state
+  (`ErrMultiFileReference`, `ErrNotFLACOrWAV`), `warn` for anything suggesting the directory or
+  CUE is actually broken — extend it when adding a `cue` sentinel. An unreadable directory
+  returns `fs.SkipDir` so `WalkDir` does not re-report it and double-count `Summary.Skipped` —
+  but an unreadable *input root* is returned as an error instead, since `WalkDir` swallows a
+  `SkipDir` from the root callback and a broken bind mount would otherwise read as an empty
+  library rather than a scan failure.
 - `internal/split` — `cuebreakpoints` → `shnsplit` (stderr → progress) → tagging (`cueprint` +
-  `metaflac`) → pregap removal → cover copy.
-- `internal/job` — serialized worker (one split at a time) + in-memory job registry.
+  `metaflac`) → pregap removal → cover copy. A `reporter` (built from `Options.Progress` +
+  `Options.Log`) is threaded through `runShnsplit`/`finishSplit` and emits synthesized pipeline
+  events (parse, source, breakpoints, per-track, tag, cover, done). A failure logs *nothing*
+  here: it is returned as an error carrying the tool's own diagnostics (trimmed by
+  `toolDiagnostic` to the last few non-blank lines, since `joblog` strips newlines and an
+  uncapped join renders as one megaline), and `internal/job` logs it once. Emitting it at both
+  layers would double every tool failure in the job log.
+- `internal/job` — serialized worker (one split at a time) + in-memory job registry. Each `State`
+  carries a `Log *joblog.Buffer`, fresh per `Enqueue` (a re-split starts an empty log); a rejected
+  enqueue restores the prior state, log included. `run` writes an `error` entry for *any*
+  `splitFn` failure — the SPA auto-expands this log precisely on `status=error`, so a failure
+  `split.Run` cannot attribute to a tool (cue parse, missing source, unwritable output dir,
+  cancellation) must still leave a line explaining why.
 - `internal/server` — `net/http` mux (Go 1.22+ patterns), JSON handlers, realpath containment,
   `embed.FS` SPA serving with fallback, `slog`. Routes are declared in one `apiRoutes()` table
   that `routes()` iterates — add a route there, not with a stray `mux.Handle`.
 - `internal/server/openapi` — hand-written `openapi.yaml` + a vendored Scalar bundle, both
   `//go:embed`ed; served at `GET /api/openapi.yaml` and `GET /api/docs`.
 - `web/` — `//go:embed all:dist`. `web/dist/` holds only a placeholder here; the real SPA is
-  baked in at image-build time by the workspace repo.
+  baked in at image-build time.
 
 ## Commands
 
@@ -34,8 +65,6 @@ make lint         # golangci-lint run
 make fmt          # golangci-lint fmt
 make vet          # go vet ./...
 ```
-
-Also exposed in the DWE workspace as `dwe cmd backend.{run,test,lint}`.
 
 ## Conventions
 
@@ -56,5 +85,7 @@ Also exposed in the DWE workspace as `dwe cmd backend.{run,test,lint}`.
 - `GET /api/version` reports `server.BuildInfo`: the app's own version plus `shntool_version`,
   probed once at startup by `split.ShntoolVersion` (`shntool -v`) and omitted when unknown — a
   missing tool is an absent version, never a startup error.
+- `GET /api/status/{job_id}` accepts `?log_since=N` (missing/unparseable treated as `0`) and
+  returns `log`/`log_next` alongside the existing fields, for incremental log polling.
 
 > `CLAUDE.md` is a symlink to this file. Edit `AGENTS.md`.

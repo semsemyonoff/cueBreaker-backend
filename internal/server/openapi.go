@@ -3,7 +3,7 @@ package server
 import (
 	"net/http"
 
-	"git.horn/cueBreaker/backend/internal/server/openapi"
+	"github.com/semsemyonoff/cueBreaker-backend/internal/server/openapi"
 )
 
 func (s *Server) handleOpenAPISpec(w http.ResponseWriter, r *http.Request) {

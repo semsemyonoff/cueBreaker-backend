@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"git.horn/cueBreaker/backend/internal/cue"
-	"git.horn/cueBreaker/backend/internal/scan"
+	"github.com/semsemyonoff/cueBreaker-backend/internal/cue"
+	"github.com/semsemyonoff/cueBreaker-backend/internal/scan"
 )
 
 // tagTimeout bounds each cueprint/metaflac call, mirroring app.py's
@@ -106,7 +106,7 @@ func listSplitFLACs(dir string) ([]string, error) {
 // FLAC file names (result_files). trackCount/totalSteps are the same
 // values Run used to size the split half of the progress bar; the tagging
 // half continues from trackCount up to totalSteps.
-func finishSplit(ctx context.Context, utf8Cue string, album cue.Album, sourceDir, outDir string, trackCount, totalSteps int, progress ProgressFunc) ([]string, error) {
+func finishSplit(ctx context.Context, utf8Cue string, album cue.Album, sourceDir, outDir string, trackCount, totalSteps int, r reporter) ([]string, error) {
 	names, err := listSplitFLACs(outDir)
 	if err != nil {
 		return nil, fmt.Errorf("split: list output files: %w", err)
@@ -118,7 +118,7 @@ func finishSplit(ctx context.Context, utf8Cue string, album cue.Album, sourceDir
 
 	for i, name := range realNames {
 		trackNum := i + 1
-		reportProgress(progress, trackCount+trackNum, totalSteps, "Tagging: "+name)
+		r.step(trackCount+trackNum, totalSteps, "Tagging: "+name)
 
 		fields := trackTagFields{
 			Title:       cueprintTrackField(ctx, utf8Cue, trackNum, "%t"),
@@ -131,19 +131,24 @@ func finishSplit(ctx context.Context, utf8Cue string, album cue.Album, sourceDir
 			TrackTotal:  len(realNames),
 		}
 		applyMetaflacTags(ctx, filepath.Join(outDir, name), buildTags(fields))
+		r.info("tagged %s: %s", trackFraction(trackNum, len(realNames)), name)
 	}
 
-	reportProgress(progress, totalSteps, totalSteps, "Copying cover...")
+	r.step(totalSteps, totalSteps, "Copying cover...")
 	for _, name := range pregapNames {
 		if err := os.Remove(filepath.Join(outDir, name)); err != nil {
 			return nil, fmt.Errorf("split: remove pregap file: %w", err)
 		}
+		r.warn("removed pregap file: %s", name)
 	}
 	if coverPath, ok := scan.FindCover(sourceDir); ok {
 		dst := filepath.Join(outDir, filepath.Base(coverPath))
 		if err := copyFile(coverPath, dst); err != nil {
 			return nil, fmt.Errorf("split: copy cover: %w", err)
 		}
+		r.info("cover copied: %s", filepath.Base(coverPath))
+	} else {
+		r.warn("no cover found")
 	}
 
 	result, err := listSplitFLACs(outDir)

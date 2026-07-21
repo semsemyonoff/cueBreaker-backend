@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"git.horn/cueBreaker/backend/internal/joblog"
+	"github.com/semsemyonoff/cueBreaker-backend/internal/joblog"
 )
 
 func writeFile(t *testing.T, path, content string) {

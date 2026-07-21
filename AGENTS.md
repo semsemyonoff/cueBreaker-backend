@@ -1,9 +1,12 @@
 # cueBreaker — backend
 
 FLAC+CUE album splitter, Go backend. A single static binary serving a JSON API under
-`/api/*` and the embedded SPA on `/`. Part of a three-repo product (`backend`, `frontend`,
-`workspace`) mirroring the sibling `beetDeck` / `AlbFetcharr` orgs. Module path:
-`git.horn/cueBreaker/backend`.
+`/api/*` and the embedded SPA on `/`. Module path:
+`github.com/semsemyonoff/cueBreaker-backend`.
+
+This repo is the backend alone. The React SPA is a separate repository, consumed only as
+built static assets in `web/dist/`; there is no shared code and no shared filesystem. The
+production image that bundles the two is assembled in the cueBreaker deployment repo.
 
 ## Layout
 
@@ -49,7 +52,7 @@ FLAC+CUE album splitter, Go backend. A single static binary serving a JSON API u
 - `internal/server/openapi` — hand-written `openapi.yaml` + a vendored Scalar bundle, both
   `//go:embed`ed; served at `GET /api/openapi.yaml` and `GET /api/docs`.
 - `web/` — `//go:embed all:dist`. `web/dist/` holds only a placeholder here; the real SPA is
-  baked in at image-build time by the workspace repo.
+  baked in at image-build time.
 
 ## Commands
 
@@ -62,8 +65,6 @@ make lint         # golangci-lint run
 make fmt          # golangci-lint fmt
 make vet          # go vet ./...
 ```
-
-Also exposed in the DWE workspace as `dwe cmd backend.{run,test,lint}`.
 
 ## Conventions
 

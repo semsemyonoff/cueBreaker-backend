@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"git.horn/cueBreaker/backend/internal/cue"
-	"git.horn/cueBreaker/backend/internal/scan"
+	"github.com/semsemyonoff/cueBreaker-backend/internal/cue"
+	"github.com/semsemyonoff/cueBreaker-backend/internal/scan"
 )
 
 // tagTimeout bounds each cueprint/metaflac call, mirroring app.py's

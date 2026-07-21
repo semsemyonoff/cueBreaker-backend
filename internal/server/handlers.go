@@ -9,11 +9,11 @@ import (
 	"strconv"
 	"strings"
 
-	"git.horn/cueBreaker/backend/internal/cue"
-	"git.horn/cueBreaker/backend/internal/job"
-	"git.horn/cueBreaker/backend/internal/joblog"
-	"git.horn/cueBreaker/backend/internal/scan"
-	"git.horn/cueBreaker/backend/internal/split"
+	"github.com/semsemyonoff/cueBreaker-backend/internal/cue"
+	"github.com/semsemyonoff/cueBreaker-backend/internal/job"
+	"github.com/semsemyonoff/cueBreaker-backend/internal/joblog"
+	"github.com/semsemyonoff/cueBreaker-backend/internal/scan"
+	"github.com/semsemyonoff/cueBreaker-backend/internal/split"
 )
 
 // pathRequest is the shared JSON body of the preview and split endpoints: a

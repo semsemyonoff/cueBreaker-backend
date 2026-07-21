@@ -10,7 +10,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	specpkg "git.horn/cueBreaker/backend/internal/server/openapi"
+	specpkg "github.com/semsemyonoff/cueBreaker-backend/internal/server/openapi"
 )
 
 // spec is the shape of openapi.yaml this package cares about: which methods

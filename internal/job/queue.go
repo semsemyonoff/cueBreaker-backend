@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"sync"
 
-	"git.horn/cueBreaker/backend/internal/joblog"
-	"git.horn/cueBreaker/backend/internal/split"
+	"github.com/semsemyonoff/cueBreaker-backend/internal/joblog"
+	"github.com/semsemyonoff/cueBreaker-backend/internal/split"
 )
 
 // The reasons Enqueue can refuse a job. They map to different HTTP statuses —

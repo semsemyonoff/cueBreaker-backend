@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"git.horn/cueBreaker/backend/internal/joblog"
-	"git.horn/cueBreaker/backend/internal/split"
+	"github.com/semsemyonoff/cueBreaker-backend/internal/joblog"
+	"github.com/semsemyonoff/cueBreaker-backend/internal/split"
 )
 
 func waitForStatus(t *testing.T, m *Manager, id string, want Status, timeout time.Duration) State {

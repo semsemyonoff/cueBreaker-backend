@@ -1,8 +1,7 @@
 # cueBreaker backend — local dev tasks.
 #
 # The single binary embeds the built SPA from web/dist (a placeholder in this
-# repo; the real SPA is baked in at image-build time by the workspace repo).
-# These tasks are also exposed in the DWE workspace as `dwe cmd backend.*`.
+# repo; the real SPA is baked in at image-build time).
 
 APP_VERSION ?= dev
 BIN         ?= cuebreaker

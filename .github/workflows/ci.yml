@@ -1,6 +1,4 @@
-# CI for the cueBreaker Go backend. Lives under .github/workflows so it runs on
-# both GitHub and the self-hosted Forgejo (git.horn) runners — mirrors the
-# sibling beetDeck / AlbFetcharr repos' CI placement.
+# CI for the cueBreaker Go backend: vet + golangci-lint, build + test.
 name: CI
 on:
   push:

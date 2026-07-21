@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"git.horn/cueBreaker/backend/internal/cue"
-	"git.horn/cueBreaker/backend/internal/joblog"
+	"github.com/semsemyonoff/cueBreaker-backend/internal/cue"
+	"github.com/semsemyonoff/cueBreaker-backend/internal/joblog"
 )
 
 // Pair describes a directory holding a CUE sheet that references an

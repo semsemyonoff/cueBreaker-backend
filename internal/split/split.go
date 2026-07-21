@@ -11,8 +11,8 @@ import (
 	"syscall"
 	"time"
 
-	"git.horn/cueBreaker/backend/internal/cue"
-	"git.horn/cueBreaker/backend/internal/joblog"
+	"github.com/semsemyonoff/cueBreaker-backend/internal/cue"
+	"github.com/semsemyonoff/cueBreaker-backend/internal/joblog"
 )
 
 // breakpointsTimeout bounds how long cuebreakpoints may run, mirroring

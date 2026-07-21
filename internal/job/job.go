@@ -1,6 +1,6 @@
 package job
 
-import "git.horn/cueBreaker/backend/internal/joblog"
+import "github.com/semsemyonoff/cueBreaker-backend/internal/joblog"
 
 // Status represents where a job currently is in the split pipeline.
 type Status string

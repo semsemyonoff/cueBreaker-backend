@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"git.horn/cueBreaker/backend/internal/joblog"
+	"github.com/semsemyonoff/cueBreaker-backend/internal/joblog"
 )
 
 // logCall is one recorded Options.Log invocation, formatted the way the

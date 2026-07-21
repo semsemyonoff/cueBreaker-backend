@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"git.horn/cueBreaker/backend/internal/cue"
+	"github.com/semsemyonoff/cueBreaker-backend/internal/cue"
 )
 
 func TestBuildTags(t *testing.T) {

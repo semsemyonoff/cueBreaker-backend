@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"git.horn/cueBreaker/backend/internal/config"
-	"git.horn/cueBreaker/backend/internal/job"
-	"git.horn/cueBreaker/backend/internal/server/openapi"
+	"github.com/semsemyonoff/cueBreaker-backend/internal/config"
+	"github.com/semsemyonoff/cueBreaker-backend/internal/job"
+	"github.com/semsemyonoff/cueBreaker-backend/internal/server/openapi"
 )
 
 // BuildInfo is the version payload served at GET /api/version: cueBreaker's

@@ -15,11 +15,11 @@ import (
 	"testing"
 	"time"
 
-	"git.horn/cueBreaker/backend/internal/config"
-	"git.horn/cueBreaker/backend/internal/job"
-	"git.horn/cueBreaker/backend/internal/joblog"
-	"git.horn/cueBreaker/backend/internal/scan"
-	"git.horn/cueBreaker/backend/internal/split"
+	"github.com/semsemyonoff/cueBreaker-backend/internal/config"
+	"github.com/semsemyonoff/cueBreaker-backend/internal/job"
+	"github.com/semsemyonoff/cueBreaker-backend/internal/joblog"
+	"github.com/semsemyonoff/cueBreaker-backend/internal/scan"
+	"github.com/semsemyonoff/cueBreaker-backend/internal/split"
 )
 
 func writeFile(t *testing.T, path, content string) {
